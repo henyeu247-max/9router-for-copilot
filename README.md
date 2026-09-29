@@ -17,6 +17,9 @@ VS Code's built-in BYOK works great for well-behaved models. 9Router adds a resi
 - **Reasoning models leak `<think>` blocks?** Routes them into Copilot's thinking UI, not your chat.
 - **Context-length errors?** Auto-detects the real limit and budgets tokens safely.
 - **Model outputs tool names as text?** Lowers temperature and stabilises formatting.
+- **Strict host rejects long tool names (Meta Llama API: max 64 chars)?** Tool names and call ids are shortened deterministically on the wire and mapped back, so Agent mode keeps working.
+- **Thinking shows as dozens of "Finished with N steps" fragments?** Reasoning is buffered into a single thinking block per turn.
+- **HTTP 429 / 503?** Retries with `Retry-After` (or exponential backoff) before failing.
 
 Inference stays on your server. No per-token fees. Doesn't consume Copilot premium quota.
 
@@ -34,6 +37,22 @@ Inference stays on your server. No per-token fees. Doesn't consume Copilot premi
 | `9router-for-github-copilot.agentTemperature`    | `0`                         | Tool-call stability (lower = stricter)                  |
 | `9router-for-github-copilot.modelContextWindows` | `{}`                        | Per-model context overrides, e.g. `{"qwen3-8b": 32768}` |
 | `9router-for-github-copilot.perModelOptions`     | `{}`                        | Per-model sampler params (temperature, top_p, etc.)     |
+| `9router-for-github-copilot.visionProxyEnabled`  | `false`                     | Describe images for non-vision models (see below)       |
+| `9router-for-github-copilot.visionProxyModel`    | `""`                        | Model used to describe images; empty = auto-pick        |
+| `9router-for-github-copilot.encodeSlashInModelId`| `false`                     | Show `/` in model ids as `::` in the picker (see below) |
+
+### Vision proxy (experimental)
+
+When enabled, an image attached to a chat with a model the **server explicitly reports as non-vision** (`capabilities.vision: false`) is described by a vision-capable model and sent as text instead of being dropped. Notes:
+
+- It costs one extra request per message with images, to `visionProxyModel` or, if empty, an auto-picked vision model (a "mini/flash"-style name is preferred). Set `visionProxyModel` explicitly if you care which model (or account) is used.
+- It does nothing for models whose vision support the server does not report.
+- If no vision model is available or the call fails, the image is replaced by `[Image Description unavailable]` and the chat continues.
+- Requires `enableImageInput` to be on. Retries 429/503 up to 3 times.
+
+### Model id encoding (`encodeSlashInModelId`)
+
+VS Code identifies a model as `vendor/id`, so a gateway id such as `xai/grok-4.5` can collide with a same-named provider or break picker search. With this on, `/` is shown as `::` (`xai::grok-4.5`); the gateway still receives the original id. Changing it **resets your saved model selection** in the picker. Ids containing a literal `::` are not supported. Chats saved while it was on keep working after you turn it off.
 
 ## Commands
 
