@@ -1,6 +1,8 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  decodeSlashInModelId,
+  encodeSlashInModelId,
   formatExposedModelId,
   parseModelTarget,
 } from '../modelNamespace';
@@ -66,5 +68,21 @@ describe('parseModelTarget', () => {
       profileId: 'custom-profile',
       rawModelId: 'some-model',
     });
+  });
+});
+
+describe('slash encoding (opt-in)', () => {
+  test('encode/decode round-trip and default is unchanged', () => {
+    assert.equal(formatExposedModelId('p', 'xai/grok-4.5', false), 'xai/grok-4.5');
+    assert.equal(formatExposedModelId('p', 'xai/grok-4.5', false, true), 'xai::grok-4.5');
+    assert.equal(formatExposedModelId('p', 'xai/grok-4.5', true, true), 'p/xai::grok-4.5');
+    assert.equal(decodeSlashInModelId(encodeSlashInModelId('a/b/c')), 'a/b/c');
+    assert.equal(parseModelTarget('xai::grok-4.5', ['p'], 'p').rawModelId, 'xai/grok-4.5');
+    assert.deepEqual(parseModelTarget('p/xai::grok-4.5', ['p', 'q'], 'p'), {
+      profileId: 'p',
+      rawModelId: 'xai/grok-4.5',
+    });
+    // legacy slash ids keep working whether or not the setting is on
+    assert.equal(parseModelTarget('xai/grok-4.5', ['p'], 'p').rawModelId, 'xai/grok-4.5');
   });
 });

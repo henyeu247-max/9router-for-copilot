@@ -38,6 +38,9 @@ const MODEL_AFFECTING_KEYS: readonly string[] = [
   '9router-for-github-copilot.defaultMaxTokens',
   '9router-for-github-copilot.defaultMaxOutputTokens',
   '9router-for-github-copilot.enableImageInput',
+  '9router-for-github-copilot.visionProxyEnabled',
+  '9router-for-github-copilot.encodeSlashInModelId',
+  '9router-for-github-copilot.visionProxyModel',
   '9router-for-github-copilot.enableToolCalling',
   '9router-for-github-copilot.modelContextWindows',
 ];
@@ -217,7 +220,7 @@ export class GatewayProvider
         }
 
         for (const rawModel of outcome.models) {
-          const exposedId = formatExposedModelId(profile.id, rawModel.id, namespaceEnabled);
+          const exposedId = formatExposedModelId(profile.id, rawModel.id, namespaceEnabled, this.encodeSlash());
           allModels.push({
             ...rawModel,
             id: exposedId,
@@ -260,6 +263,13 @@ export class GatewayProvider
       this.syncRuntimes();
       this.refreshModels();
     }
+  }
+
+  /** Whether `/` in gateway model ids is exposed as `::` (setting, default off). */
+  private encodeSlash(): boolean {
+    return vscode.workspace
+      .getConfiguration('9router-for-github-copilot')
+      .get<boolean>('encodeSlashInModelId', false);
   }
 
   async provideLanguageModelChatResponse(
@@ -380,7 +390,7 @@ export class GatewayProvider
       if (profile.enabled) {
         for (const m of cached) {
           const totalContext = runtime?.catalog.getContextForModel(m.id);
-          const exposedId = formatExposedModelId(profile.id, m.id, namespaceEnabled);
+          const exposedId = formatExposedModelId(profile.id, m.id, namespaceEnabled, this.encodeSlash());
           allModels.push({
             id: exposedId,
             name: namespaceEnabled ? `${profile.name} / ${m.name}` : m.name,

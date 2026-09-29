@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { fetchWithRateLimitRetry } from './rateLimitRetry';
+import { buildDescribeRequest, extractCompletionText } from '../chat/visionProxy';
 import {
   OpenAIChatCompletionRequest,
   OpenAICompletionRequest,
@@ -531,6 +532,30 @@ export class GatewayClient {
    * own `timeoutMs` because completions need a much tighter latency budget than
    * the chat `requestTimeout` default.
    */
+  public async describeImages(
+    modelId: string,
+    imageUrls: readonly string[],
+    cancellationToken?: vscode.CancellationToken
+  ): Promise<string> {
+    const url = `${normalizeBaseUrl(this.config.serverUrl)}/v1/chat/completions`;
+    const body = JSON.stringify(buildDescribeRequest(modelId, imageUrls));
+    const response = await fetchWithRateLimitRetry(
+      () =>
+        this.fetchWithTimeout(
+          url,
+          { method: 'POST', headers: { ...this.getHeaders(), 'Content-Type': 'application/json' }, body },
+          cancellationToken,
+          Math.min(this.config.requestTimeout, 60_000)
+        ),
+      { maxAttempts: 3, isCancelled: () => cancellationToken?.isCancellationRequested === true, log: this.log }
+    );
+    if (!response.ok) {
+      const errBody = await response.text().catch(() => '');
+      throw new Error(`Vision proxy ${modelId} failed: HTTP ${response.status} ${errBody.slice(0, 200)}`);
+    }
+    return extractCompletionText(await response.json());
+  }
+
   public async fetchCompletion(
     request: OpenAICompletionRequest,
     cancellationToken: vscode.CancellationToken,

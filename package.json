@@ -151,6 +151,24 @@
           "description": "Enable image input capability for models that support multimodal requests",
           "order": 6
         },
+        "9router-for-github-copilot.visionProxyEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Experimental. For models the server explicitly reports as non-vision, describe attached images with a vision-capable model (extra request; may use a paid model) and send the description as text. Has no effect when the server does not report vision support for a model",
+          "order": 6.1
+        },
+        "9router-for-github-copilot.visionProxyModel": {
+          "type": "string",
+          "default": "",
+          "description": "Model id used to describe images for the vision proxy (e.g. gc/gemini-2.5-flash). Empty = auto-pick a vision-capable model from the server list",
+          "order": 6.2
+        },
+        "9router-for-github-copilot.encodeSlashInModelId": {
+          "type": "boolean",
+          "default": false,
+          "description": "Expose '/' in gateway model ids as '::' in the model picker (e.g. xai/grok-4.5 -> xai::grok-4.5). Enable only if ids with '/' collide with other providers or break picker search. Changing it resets saved model selections; the gateway still receives the original id",
+          "order": 6.3
+        },
         "9router-for-github-copilot.enableToolCalling": {
           "type": "boolean",
           "default": true,

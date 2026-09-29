@@ -62,6 +62,8 @@ export class ModelCatalog {
    * them in `perModelOptions` client-side.
    */
   private readonly discoveredByModelId: Map<string, DiscoveredModelInfo> = new Map();
+  /** Explicit per-model vision flag from the server/discovery (undefined = unknown). */
+  private readonly visionByModelId: Map<string, boolean | undefined> = new Map();
   private lastSuccessfulFetchAt?: number;
   private lastConnectionError?: string;
 
@@ -70,6 +72,16 @@ export class ModelCatalog {
   /** Most recent successful fetch result, or empty when none is cached. */
   public getCachedModels(): LanguageModelChatInformation[] {
     return this.fetchLast?.result ?? [];
+  }
+
+  /** True/false when the server said so, undefined when unknown. */
+  public modelVision(modelId: string): boolean | undefined {
+    return this.visionByModelId.get(modelId);
+  }
+
+  /** Every known model with its vision flag (for picking the proxy model). */
+  public listModelVision(): Array<{ id: string; vision?: boolean }> {
+    return [...this.visionByModelId.entries()].map(([id, vision]) => ({ id, vision }));
   }
 
   public getContextForModel(modelId: string): number | undefined {
@@ -183,6 +195,7 @@ export class ModelCatalog {
     // concurrent chat request sees no context/params at all.
     const nextContextByModelId = new Map<string, number>();
     const nextDiscoveredByModelId = new Map<string, DiscoveredModelInfo>();
+    const nextVisionByModelId = new Map<string, boolean | undefined>();
 
     const config = this.deps.getConfig();
     const models = await Promise.all(
@@ -204,6 +217,8 @@ export class ModelCatalog {
           nextDiscoveredByModelId.set(model.id, discovered);
         }
 
+        const visionFlag = discovered?.visionSupported ?? model.capabilities?.vision;
+        nextVisionByModelId.set(model.id, visionFlag);
         const { info, totalContext, hasServerReportedContext } = buildModelInfo({
           model,
           defaultMaxTokens: config.defaultMaxTokens,
@@ -212,10 +227,11 @@ export class ModelCatalog {
             // Priority: discovered > 9Router capabilities > user setting.
             // `undefined` means the backend didn't say (e.g. older Ollama),
             // so keep the setting.
+            // With the vision proxy on, text-only models still advertise image input:
+            // VS Code then forwards the image and the handler describes it.
             imageInput:
-              (discovered?.visionSupported ?? model.capabilities?.vision) === false
-                ? false
-                : config.enableImageInput && (discovered?.visionSupported ?? model.capabilities?.vision ?? true),
+              config.enableImageInput &&
+              (config.visionProxyEnabled || (visionFlag ?? true)),
             toolCalling:
               (discovered?.toolsSupported ?? model.capabilities?.tools) === false
                 ? false
@@ -261,6 +277,10 @@ export class ModelCatalog {
     // gone so stale data can't leak into future chat requests.
     this.contextByModelId.clear();
     this.discoveredByModelId.clear();
+    this.visionByModelId.clear();
+    for (const [id, vision] of nextVisionByModelId) {
+      this.visionByModelId.set(id, vision);
+    }
     for (const [id, context] of nextContextByModelId) {
       this.contextByModelId.set(id, context);
     }

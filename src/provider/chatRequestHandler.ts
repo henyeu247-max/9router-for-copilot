@@ -15,6 +15,8 @@ import {
 } from '../chat/tokenBudget';
 import { randomUUID } from 'node:crypto';
 import { ThinkingBuffer } from '../chat/thinkingBuffer';
+import { describeImagesInMessages, messagesHaveImages, pickVisionModelId } from '../chat/visionProxy';
+import { buildToolNameMap, restoreToolName, rewriteHistoryToolNames, type ToolNameMap } from '../chat/toolNames';
 import { tryRepairJson } from '../chat/jsonRepair';
 import { fillMissingRequiredProperties } from '../chat/toolSchema';
 import { pickReasoningEffort } from '../chat/reasoningEffort';
@@ -152,7 +154,8 @@ export class ChatRequestHandler {
     this.deps.onRequestState({ kind: 'start', modelId: model.id, modelName });
 
     const config = this.deps.getConfig();
-    const openAIMessages = convertAllMessages(messages, config.enableImageInput, log);
+    let openAIMessages = convertAllMessages(messages, config.enableImageInput, log);
+    openAIMessages = await this.applyVisionProxy(openAIMessages, model, config, token);
     log(`Converted to ${openAIMessages.length} OpenAI messages`);
     this.logMessageStructure(openAIMessages);
 
@@ -164,7 +167,9 @@ export class ChatRequestHandler {
     // (~93 tools, ~24K chars) would reserve context that gets thrown away by
     // buildToolsConfig() later — collapsing the user's prompt when tool
     // calling is disabled.
-    const { tools: filteredTools, schemas: toolSchemas } = this.buildToolsConfig(config, options);
+    const { tools: filteredTools, schemas: toolSchemas, nameMap: toolNameMap } = this.buildToolsConfig(config, options);
+    // Keep history consistent with the (possibly shortened) wire tool names/ids.
+    rewriteHistoryToolNames(openAIMessages, toolNameMap);
     const toolsSerializedLength = filteredTools ? JSON.stringify(filteredTools).length : 0;
 
     // Once anything has been streamed to the chat view we can no longer
@@ -283,7 +288,7 @@ export class ChatRequestHandler {
 
       this.logRequest(config, requestOptions);
 
-      const reporter = this.createStreamReporter(trackingProgress, (usage) => {
+      const reporter = this.createStreamReporter(trackingProgress, toolNameMap, (usage) => {
         capturedUsage = usage;
       });
       const chunks = this.deps.client.streamChatCompletion(requestOptions, token);
@@ -291,7 +296,7 @@ export class ChatRequestHandler {
         chunks: chunks as AsyncIterable<StreamChunk>,
         reporter,
         isCancelled: () => token.isCancellationRequested,
-        resolveToolCallArgs: (toolCall) => this.resolveToolCallArgs(toolCall, toolSchemas),
+        resolveToolCallArgs: (toolCall) => this.resolveToolCallArgs(toolCall, toolSchemas, toolNameMap),
       });
 
       log(
@@ -354,18 +359,52 @@ export class ChatRequestHandler {
     }
   }
 
+  /**
+   * Text-only model + attached images: describe the images with a vision-capable
+   * model and inline the text, instead of sending image_url parts the model
+   * would reject. No-op when the model can see, the proxy is off, or no images.
+   */
+  private async applyVisionProxy(
+    messages: OpenAIMessage[],
+    model: vscode.LanguageModelChatInformation,
+    config: GatewayConfig,
+    token: vscode.CancellationToken
+  ): Promise<OpenAIMessage[]> {
+    const { log, catalog, client } = this.deps;
+    if (!config.visionProxyEnabled || !messagesHaveImages(messages)) { return messages; }
+    if (catalog.modelVision(model.id) !== false) { return messages; }
+
+    const visionModel = pickVisionModelId(catalog.listModelVision(), config.visionProxyModel);
+    if (!visionModel) {
+      // Same shape as a failed description, without a pointless throw/catch.
+      log('Vision proxy: no vision-capable model available; replacing images with a marker');
+      const { messages: out } = await describeImagesInMessages(messages, () => Promise.resolve(''), log);
+      return out;
+    }
+    log(`Vision proxy: describing image(s) via ${visionModel} for text-only model ${model.id}`);
+    const { messages: out, imageCount } = await describeImagesInMessages(
+      messages,
+      (urls) => client.describeImages(visionModel, urls, token),
+      log
+    );
+    log(`Vision proxy: described ${imageCount} image(s)`);
+    return out;
+  }
+
   private buildToolsConfig(
     config: GatewayConfig,
     options: vscode.ProvideLanguageModelChatResponseOptions
   ): {
     tools: OpenAIToolDefinition[] | undefined;
     schemas: Map<string, Record<string, unknown> | undefined>;
+    nameMap: ToolNameMap;
   } {
     const schemas = new Map<string, Record<string, unknown> | undefined>();
     if (!config.enableToolCalling || !options.tools || options.tools.length === 0) {
-      return { tools: undefined, schemas };
+      return { tools: undefined, schemas, nameMap: buildToolNameMap([]) };
     }
 
+    const nameMap = buildToolNameMap(options.tools.map((t) => t.name));
     const tools: OpenAIToolDefinition[] = options.tools.map((tool) => {
       this.deps.log(`Tool: ${tool.name}`);
       this.deps.log(`  Description: ${formatToolDescription(tool.description)}`);
@@ -382,14 +421,14 @@ export class ChatRequestHandler {
       return {
         type: 'function',
         function: {
-          name: tool.name,
+          name: nameMap.originalToWire.get(tool.name) ?? tool.name,
           description: tool.description,
           parameters: tool.inputSchema,
         },
       };
     });
 
-    return { tools, schemas };
+    return { tools, schemas, nameMap };
   }
 
   /**
@@ -399,7 +438,8 @@ export class ChatRequestHandler {
    */
   private resolveToolCallArgs(
     toolCall: { id: string; name: string; arguments: string },
-    toolSchemas: Map<string, Record<string, unknown> | undefined>
+    toolSchemas: Map<string, Record<string, unknown> | undefined>,
+    toolNameMap: ToolNameMap
   ): Record<string, unknown> {
     const { log } = this.deps;
     log(`\n=== TOOL CALL RECEIVED ===`);
@@ -423,7 +463,7 @@ export class ChatRequestHandler {
       );
     }
 
-    const toolSchema = toolSchemas.get(toolCall.name);
+    const toolSchema = toolSchemas.get(restoreToolName(toolNameMap, toolCall.name));
     if (toolSchema) {
       args = fillMissingRequiredProperties(args, toolSchema, log);
     }
@@ -434,6 +474,7 @@ export class ChatRequestHandler {
 
   private createStreamReporter(
     progress: vscode.Progress<vscode.LanguageModelResponsePart>,
+    toolNameMap: ToolNameMap,
     onUsage?: (usage: TokenUsage) => void
   ): StreamReporter {
     // One stable id + one flushed part per turn (see thinkingBuffer.ts).
@@ -454,7 +495,7 @@ export class ChatRequestHandler {
       reportThinkingDone: () => thinking.done(),
       reportToolCall: (id, name, args) => {
         thinking.finish();
-        progress.report(new vscode.LanguageModelToolCallPart(id, name, args));
+        progress.report(new vscode.LanguageModelToolCallPart(id, restoreToolName(toolNameMap, name), args));
       },
       reportUsage: (usage) => {
         // VS Code 1.120 picks up token usage emitted as a LanguageModelDataPart

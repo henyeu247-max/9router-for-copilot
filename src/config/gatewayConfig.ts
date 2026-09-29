@@ -11,6 +11,10 @@ export interface GatewayConfig {
   defaultMaxTokens: number;
   defaultMaxOutputTokens: number;
   enableImageInput: boolean;
+  /** Describe images with a vision model for models that can't see them (instead of dropping). */
+  visionProxyEnabled: boolean;
+  /** Explicit vision model id for the proxy; empty = auto-pick from the model list. */
+  visionProxyModel: string;
   enableToolCalling: boolean;
   parallelToolCalling: boolean;
   agentTemperature: number;

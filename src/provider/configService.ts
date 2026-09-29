@@ -51,6 +51,8 @@ export class ConfigService {
         TOKEN_CONSTANTS.FALLBACK_OUTPUT_TOKENS
       ),
       enableImageInput: config.get<boolean>('enableImageInput', true),
+      visionProxyEnabled: config.get<boolean>('visionProxyEnabled', false),
+      visionProxyModel: config.get<string>('visionProxyModel', '').trim(),
       enableToolCalling: config.get<boolean>('enableToolCalling', true),
       parallelToolCalling: config.get<boolean>('parallelToolCalling', true),
       agentTemperature: config.get<number>('agentTemperature', 0),

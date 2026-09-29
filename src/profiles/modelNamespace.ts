@@ -12,6 +12,24 @@
  * set of known active profile IDs.
  */
 
+/** Separator used instead of `/` inside a raw model id when slash-encoding is on. */
+export const SLASH_ENCODED_SEP = '::';
+
+/**
+ * VS Code identifies a chat model as `vendor/id`. A gateway id that itself
+ * contains `/` (e.g. `xai/grok-4.5`) becomes a 3-segment identifier that can
+ * collide with same-named BYOK vendors and break picker search. When enabled,
+ * `/` inside the RAW id is exposed as `::` (`xai::grok-4.5`); the gateway still
+ * receives the original id (see {@link parseModelTarget}).
+ */
+export function encodeSlashInModelId(rawModelId: string): string {
+  return rawModelId.replaceAll('/', SLASH_ENCODED_SEP);
+}
+
+export function decodeSlashInModelId(exposedModelId: string): string {
+  return exposedModelId.replaceAll(SLASH_ENCODED_SEP, '/');
+}
+
 export interface ParsedModelTarget {
   readonly profileId: string;
   readonly rawModelId: string;
@@ -25,9 +43,11 @@ export interface ParsedModelTarget {
 export function formatExposedModelId(
   profileId: string,
   rawModelId: string,
-  namespaceEnabled: boolean
+  namespaceEnabled: boolean,
+  encodeSlash = false
 ): string {
-  return namespaceEnabled ? `${profileId}/${rawModelId}` : rawModelId;
+  const id = encodeSlash ? encodeSlashInModelId(rawModelId) : rawModelId;
+  return namespaceEnabled ? `${profileId}/${id}` : id;
 }
 
 /**
@@ -40,6 +60,18 @@ export function formatExposedModelId(
  *    b. Otherwise route to the first known profile ID, or return fallbackProfileId.
  */
 export function parseModelTarget(
+  modelId: string,
+  knownProfileIds: readonly string[],
+  fallbackProfileId: string
+): ParsedModelTarget {
+  const target = parseModelTargetRaw(modelId, knownProfileIds, fallbackProfileId);
+  // Always decode `::` even when the setting is now off: a chat session saved
+  // while it was ON must keep resolving. Raw gateway ids containing `::` are
+  // therefore unsupported (none exist on 9Router; ids use `/`).
+  return { ...target, rawModelId: decodeSlashInModelId(target.rawModelId) };
+}
+
+function parseModelTargetRaw(
   modelId: string,
   knownProfileIds: readonly string[],
   fallbackProfileId: string
