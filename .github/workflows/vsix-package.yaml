@@ -1,0 +1,118 @@
+name: VSIX Package
+
+run-name: VSIX • ${{ github.ref_name }} • ${{ github.event_name }}
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      # Release tags (e.g. 3.0.0) and pre-release tags (e.g. 3.1.0-rc.1, 3.1.0-beta)
+      - "[0-9]*.[0-9]*.[0-9]*"
+      - "[0-9]*.[0-9]*.[0-9]*-*"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Read-only by default; the publish job only reads the repo too (it uses VSCE_PAT).
+permissions:
+  contents: read
+
+# Cancel superseded branch/PR builds, but never cancel release-tag builds.
+concurrency:
+  group: vsix-package-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    name: Build and test
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        # `npm ci` = reproducible install from package-lock.json.
+        # --ignore-scripts reduces install-time supply-chain risk.
+        run: npm ci --ignore-scripts
+
+      - name: Type check
+        run: npm run check-types
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Smoke test (production bundle activates, commands match package.json)
+        run: npm run smoke
+
+      - name: Package
+        run: npx vsce package --no-dependencies -o 9router-for-github-copilot.vsix
+
+      - name: Upload VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: 9router-for-github-copilot.vsix
+          if-no-files-found: error
+
+  publish:
+    name: Publish to VS Code Marketplace
+    environment: production
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Verify tag matches package version
+        shell: bash
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          if [[ "$GITHUB_REF_NAME" != "$PACKAGE_VERSION" && "$GITHUB_REF_NAME" != "$PACKAGE_VERSION"-* ]]; then
+            echo "::error::Tag '$GITHUB_REF_NAME' does not match package.json version '$PACKAGE_VERSION' or a pre-release tag derived from it."
+            exit 1
+          fi
+
+      - name: Type check
+        run: npm run check-types
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Publish extension
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            echo "Publishing pre-release ($GITHUB_REF_NAME)..."
+            npx vsce publish --no-dependencies --pre-release
+          else
+            echo "Publishing release ($GITHUB_REF_NAME)..."
+            npx vsce publish --no-dependencies
+          fi
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}

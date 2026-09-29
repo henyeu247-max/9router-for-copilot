@@ -1,20 +1,26 @@
 .vscode/**
 .vscode-test/**
+.github/**
+.devcontainer/**
 src/**
 test/**
 scripts/**
+docs/**
 node_modules/**
 esbuild.mjs
 tsconfig.json
 vitest.config.ts
 eslint.config.mjs
+package-lock.json
 **/*.map
 **/*.ts
 !dist/**
 .gitignore
+.npmrc
 assets/icon.svg
+assets/screenshot-*.png
 
-# publish tokens — never ship in the .vsix
+# publish tokens - never ship in the .vsix
 .env
 .env.*
 !.env.example
