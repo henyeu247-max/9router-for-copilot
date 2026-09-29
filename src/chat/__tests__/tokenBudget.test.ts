@@ -7,6 +7,7 @@ import {
   calculateSafeMaxOutputTokens,
   estimateMessageTokens,
   estimateTextTokens,
+  toConservativeTokens,
   truncateMessagesToFit,
 } from '../tokenBudget';
 
@@ -248,5 +249,49 @@ describe('calculateMaxInputTokens', () => {
     });
 
     assert.equal(safeOutput, configuredMaxOutput);
+  });
+});
+
+describe('one token scale for VS Code and the truncation gate', () => {
+  test('toConservativeTokens inflates by INPUT_OVERHEAD_RATIO and rounds up', () => {
+    assert.equal(toConservativeTokens(0), 0);
+    assert.equal(toConservativeTokens(100), 120);
+    assert.equal(toConservativeTokens(101), 122);
+  });
+
+  test('VS Code compacts (78-90% of maxInput, counted conservatively) strictly before the gate truncates, for any window and tool catalogue', () => {
+    for (const ctx of [8192, 32768, 65536, 128000, 262144, 500000, 1000000, 1048576]) {
+      for (const toolsChars of [0, 4000, 24000, 100000]) {
+        const configuredMaxOutput = Math.min(4096, Math.floor(ctx / 2));
+        const maxInputAdvertised = ctx - configuredMaxOutput;
+        const gate = calculateMaxInputTokens({ modelMaxContext: ctx, configuredMaxOutput, toolsSerializedLength: toolsChars });
+        const toolsRaw = Math.ceil(toolsChars / TOKEN_CONSTANTS.CHARS_PER_TOKEN);
+        // total prompt VS Code sees when the gate is about to fire, on the conservative scale
+        if (gate === 0) { continue; } // tools alone exceed the window: nothing can fit, not a gate defect
+        const gateTotalSeenByVsCode = toConservativeTokens(gate + toolsRaw);
+        // VS Code kicks compaction off at >= 0.78 of maxInput on that same scale
+        assert.ok(gateTotalSeenByVsCode >= maxInputAdvertised * 0.78 ,
+          `ctx=${ctx} tools=${toolsChars}: gate total ${gateTotalSeenByVsCode} vs 78% ${Math.round(maxInputAdvertised * 0.78)}`);
+        // ...and the gate never lets a prompt through that exceeds what we advertised
+        assert.ok(gateTotalSeenByVsCode <= maxInputAdvertised, `ctx=${ctx} tools=${toolsChars}`);
+      }
+    }
+  });
+
+  test('a prompt that passes the gate never collapses max_tokens to the floor (issue #74 invariant)', () => {
+    for (const ctx of [32768, 128000, 262144, 1000000]) {
+      const out = Math.min(4096, Math.floor(ctx / 2));
+      for (const toolsChars of [0, 24000, 100000]) {
+        const gate = calculateMaxInputTokens({ modelMaxContext: ctx, configuredMaxOutput: out, toolsSerializedLength: toolsChars });
+        if (gate === 0) { continue; }
+        const safe = calculateSafeMaxOutputTokens({
+          estimatedInputTokens: gate,
+          toolsOverhead: Math.ceil(toolsChars / TOKEN_CONSTANTS.CHARS_PER_TOKEN),
+          modelMaxContext: ctx,
+          configuredMaxOutput: out,
+        });
+        assert.equal(safe, out, `ctx=${ctx} tools=${toolsChars}`);
+      }
+    }
   });
 });

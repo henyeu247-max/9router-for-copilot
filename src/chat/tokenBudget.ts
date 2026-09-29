@@ -33,6 +33,20 @@ export interface TokenEstimableMessage {
 }
 
 /**
+ * Conservative token count: the raw chars/4 estimate inflated by INPUT_OVERHEAD_RATIO.
+ *
+ * ONE scale for everything that decides "does this fit":
+ *  - `provideTokenCount` (VS Code counts prompts through it and compacts at
+ *    ~78-90 % of the advertised maxInputTokens),
+ *  - the truncation gate (`calculateMaxInputTokens`) and `calculateSafeMaxOutputTokens`.
+ * Because VS Code and the gate now count on the same scale, VS Code's compaction
+ * always starts before the extension's own last-resort truncation.
+ */
+export function toConservativeTokens(rawTokens: number): number {
+  return Math.ceil(rawTokens * TOKEN_CONSTANTS.INPUT_OVERHEAD_RATIO);
+}
+
+/**
  * Estimate token count for a text string using the CHARS_PER_TOKEN ratio.
  */
 export function estimateTextTokens(text: string): number {

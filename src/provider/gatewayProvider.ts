@@ -4,7 +4,7 @@ import {
   readFrameworkConfiguration,
   resolveApiKey,
 } from '../config/frameworkConfig';
-import { estimateTextTokens } from '../chat/tokenBudget';
+import { estimateTextTokens, toConservativeTokens } from '../chat/tokenBudget';
 import { diagnoseModelFetchError } from '../chat/errorDiagnostics';
 import { InlineCompletionBackend } from '../completions/inlineCompletionProvider';
 import {
@@ -345,10 +345,11 @@ export class GatewayProvider
     text: string | vscode.LanguageModelChatMessage,
     _token: vscode.CancellationToken
   ): Promise<number> {
+    // Same conservative scale as the truncation gate (see toConservativeTokens).
     if (typeof text === 'string') {
-      return estimateTextTokens(text);
+      return toConservativeTokens(estimateTextTokens(text));
     }
-    return countMessageTokens(text);
+    return toConservativeTokens(countMessageTokens(text));
   }
 
   private recordCompletedRequest(

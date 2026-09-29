@@ -9,6 +9,8 @@ export interface OpenAIModel {
   owned_by: string;
   /** vLLM, LiteLLM */
   max_model_len?: number;
+  /** OpenAI/OpenRouter-style declared output limit (9Router emits it next to context_length). */
+  max_completion_tokens?: number;
   /** Ollama, LocalAI, LM Studio */
   context_length?: number;
   /** llama.cpp */

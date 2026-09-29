@@ -9,3 +9,6 @@ out/
 .env
 .env.*
 !.env.example
+
+# Local capture of a real /v1/models response (used by an optional property test)
+_models.json

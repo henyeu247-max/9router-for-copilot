@@ -17,7 +17,7 @@
   "cfg.apiKey": "Đã lỗi thời. Dùng lệnh 'Quản lý nhà cung cấp' để lưu khóa API vào kho bí mật của VS Code.",
   "cfg.requestTimeout": "Thời gian chờ request (mili giây).",
   "cfg.defaultMaxTokens": "Kích thước context dự phòng (token đầu vào) khi máy chủ không báo.",
-  "cfg.defaultMaxOutputTokens": "Số token đầu ra tối đa dự phòng khi máy chủ không báo context.",
+  "cfg.defaultMaxOutputTokens": "Số token đầu ra tối đa giả định CHỈ cho model mà máy chủ không khai báo giới hạn output (max_completion_tokens / capabilities.maxOutput). Giới hạn được khai báo luôn ưu tiên; output bị chặn ở tối đa một nửa cửa sổ context.",
   "cfg.enableImageInput": "Bật khả năng nhận ảnh cho các model hỗ trợ đa phương thức.",
   "cfg.visionProxyEnabled": "Thử nghiệm. Với model mà máy chủ báo rõ là không có vision, mô tả ảnh đính kèm bằng một model có vision (thêm một request, có thể dùng model trả phí) rồi gửi mô tả dạng văn bản. Không có tác dụng nếu máy chủ không báo hỗ trợ vision.",
   "cfg.visionProxyModel": "Model dùng để mô tả ảnh cho vision proxy (vd gc/gemini-2.5-flash). Để trống = tự chọn model có vision từ danh sách.",

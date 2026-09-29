@@ -374,3 +374,27 @@ describe('ModelCatalog: catalog shaping (integration)', () => {
     assert.equal(b?.capabilities?.imageInput, false);
   });
 });
+
+describe('ModelCatalog.learnOutputLimitFromError', () => {
+  const info = (out: number) => ({ id: 'a', maxInputTokens: 1000, maxOutputTokens: out }) as unknown as LanguageModelChatInformation;
+  test('learns a lower output ceiling from an OpenAI-style error and exposes it', () => {
+    const h = makeCatalog({ fetchModels: () => Promise.resolve(modelsResponse()) });
+    const err = new Error('Chat completion failed: 400 - max_tokens is too large: 32000. This model supports at most 4096 completion tokens, whereas you provided 32000.');
+    assert.equal(h.catalog.learnOutputLimitFromError(info(32000), err), true);
+    assert.equal(h.catalog.getLearnedOutputLimit('a'), 4096);
+    // same limit again is not "new": no pointless second retry
+    assert.equal(h.catalog.learnOutputLimitFromError(info(32000), err), false);
+  });
+  test('ignores a limit that is not lower than what we already ask for, and unrelated errors', () => {
+    const h = makeCatalog({ fetchModels: () => Promise.resolve(modelsResponse()) });
+    assert.equal(h.catalog.learnOutputLimitFromError(info(2048), new Error('max_tokens is too large. This model supports at most 4096 completion tokens')), false);
+    assert.equal(h.catalog.learnOutputLimitFromError(info(8000), new Error('boom')), false);
+    assert.equal(h.catalog.getLearnedOutputLimit('a'), undefined);
+  });
+  test('learned limits are cleared with the other learned data on config reload', () => {
+    const h = makeCatalog({ fetchModels: () => Promise.resolve(modelsResponse()) });
+    h.catalog.learnOutputLimitFromError(info(8000), new Error('max_tokens is too large. This model supports at most 4096 completion tokens'));
+    h.catalog.clearLearnedContexts();
+    assert.equal(h.catalog.getLearnedOutputLimit('a'), undefined);
+  });
+});

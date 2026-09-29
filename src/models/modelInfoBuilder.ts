@@ -10,6 +10,7 @@ import { OpenAIModel } from '../api/types';
 import { describeModel, friendlyModelName, inferModelFamily, parseModelId } from './modelDisplay';
 import { serverReportedContext } from '../chat/contextWindow';
 import { TOKEN_CONSTANTS } from '../chat/tokenBudget';
+import { chooseMaxOutputTokens } from './outputLimit';
 
 /**
  * Grey right-hand label rendered in the VS Code chat model picker. Matches the
@@ -121,18 +122,17 @@ export function buildModelInfo({
   const serverContext = serverReportedContext(model);
   const totalContext =
     contextOverride ?? discoveredContext ?? serverContext ?? defaultMaxTokens;
-  // 9Router `capabilities.maxOutput` is an authoritative ceiling (issue #199).
-  const modelMaxOutput = model.capabilities?.maxOutput;
-  const computedMaxOutput = Math.min(
+  // The server's declared output limit is authoritative (issue #199); the
+  // `defaultMaxOutputTokens` setting only applies when the server declares none.
+  // See models/outputLimit.ts for the exact rule and what is verified vs heuristic.
+  const { maxOutputTokens } = chooseMaxOutputTokens({
+    totalContext,
+    maxCompletionTokens: model.max_completion_tokens,
+    capabilitiesMaxOutput: model.capabilities?.maxOutput,
     defaultMaxOutputTokens,
-    Math.max(
-      TOKEN_CONSTANTS.MIN_OUTPUT_TOKENS,
-      totalContext - TOKEN_CONSTANTS.ADJUST_TOKEN_BUFFER
-    )
-  );
-  const maxOutputTokens = modelMaxOutput !== undefined && modelMaxOutput > 0
-    ? Math.min(modelMaxOutput, computedMaxOutput)
-    : computedMaxOutput;
+    minOutputTokens: TOKEN_CONSTANTS.MIN_OUTPUT_TOKENS,
+    adjustBuffer: TOKEN_CONSTANTS.ADJUST_TOKEN_BUFFER,
+  });
 
   const description = describeModel(model);
   const { provider } = parseModelId(model.id);

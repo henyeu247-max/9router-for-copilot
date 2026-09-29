@@ -11,7 +11,7 @@
  *
  * Pure (no `vscode` import) so it is unit-testable.
  */
-import { estimateTextTokens } from './tokenBudget';
+import { estimateTextTokens, toConservativeTokens } from './tokenBudget';
 
 export interface UsageLike {
   prompt_tokens: number;
@@ -22,7 +22,8 @@ export interface UsageLike {
 
 /** Token estimate for everything sent in the request (messages + tool schemas). */
 export function estimatePromptTokens(inputText: string, toolsSerializedLength: number): number {
-  return estimateTextTokens(inputText) + Math.ceil(toolsSerializedLength / 4);
+  // Conservative (same scale VS Code counts with) because VS Code compacts on this number.
+  return toConservativeTokens(estimateTextTokens(inputText) + Math.ceil(toolsSerializedLength / 4));
 }
 
 /**

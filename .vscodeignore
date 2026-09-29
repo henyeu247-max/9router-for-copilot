@@ -24,3 +24,4 @@ assets/screenshot-*.png
 .env
 .env.*
 !.env.example
+_models.json

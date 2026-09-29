@@ -5,6 +5,7 @@ import { DiscoveredModelInfo, ModelDiscovery } from '../discovery/types';
 import { TOKEN_CONSTANTS } from '../chat/tokenBudget';
 import { parseContextOverflowError, resolveContextWindowOverride } from '../chat/contextWindow';
 import { applyModelFilter, selectChatModels } from '../models/catalogFilter';
+import { parseOutputLimitError } from '../chat/outputLimitError';
 import { dedupeModels } from '../models/modelDisplay';
 import { buildModelInfo } from '../models/modelInfoBuilder';
 
@@ -55,6 +56,8 @@ export class ModelCatalog {
    * on config reload since the server (or its presets) may have changed.
    */
   private readonly learnedContextByModelId: Map<string, number> = new Map();
+  /** Output limits learned from "max_tokens too large" errors (real upstream ceilings). */
+  private readonly learnedOutputByModelId: Map<string, number> = new Map();
   /**
    * Backend-discovered metadata per model id (context, sampler params,
    * capabilities — e.g. from Ollama `/api/show`). Rebuilt on every model
@@ -119,6 +122,7 @@ export class ModelCatalog {
   /** Called on config reload — a different server's learned sizes no longer apply. */
   public clearLearnedContexts(): void {
     this.learnedContextByModelId.clear();
+    this.learnedOutputByModelId.clear();
   }
 
   /**
@@ -323,6 +327,27 @@ export class ModelCatalog {
       return learned;
     }
     return context;
+  }
+
+  /** Real output ceiling learned from an upstream error, or undefined. */
+  public getLearnedOutputLimit(modelId: string): number | undefined {
+    return this.learnedOutputByModelId.get(modelId);
+  }
+
+  /**
+   * Inspect a failed chat request for a "max_tokens is too large" error and record
+   * the ceiling the upstream states. True when a new, smaller limit was learned, so
+   * retrying with a smaller max_tokens can succeed.
+   */
+  public learnOutputLimitFromError(model: LanguageModelChatInformation, error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    const limit = parseOutputLimitError(message);
+    if (limit === undefined) { return false; }
+    const current = this.learnedOutputByModelId.get(model.id) ?? model.maxOutputTokens;
+    if (limit >= current) { return false; }
+    this.learnedOutputByModelId.set(model.id, limit);
+    this.deps.log(`Learned output limit for ${model.id} from server error: ${limit} tokens (was requesting up to ${current}).`);
+    return true;
   }
 
   /**

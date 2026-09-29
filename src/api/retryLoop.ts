@@ -5,7 +5,7 @@ import { pickDegradeStep, type DegradeStep } from './degrade';
  * tested without VS Code. `attempt` runs the whole request; `describe` reports
  * what the last request contained so we never propose stripping something absent.
  *
- * Guarantees: bounded (<= 1 overflow retry + 1 retry per DegradeStep), never retries
+ * Guarantees: bounded (<= 1 overflow retry + 1 output-limit retry + 1 retry per DegradeStep), never retries
  * after output was streamed or after cancellation, and rethrows the ORIGINAL error
  * when no recovery applies.
  */
@@ -16,6 +16,8 @@ export interface RetryDeps {
   isCancelled: () => boolean;
   /** Learns the real context from an overflow error; true when a retry is worthwhile. */
   learnFromOverflow: (error: unknown) => boolean;
+  /** Learns a real output-token limit from a "max_tokens too large" error; true when a retry is worthwhile. */
+  learnFromOutputLimit?: (error: unknown) => boolean;
   /** What the LAST attempted request contained. */
   lastRequest: () => { hasReasoning: boolean; hasTools: boolean };
   /** Steps already stripped (shared with `attempt`, which applies them). */
@@ -25,6 +27,7 @@ export interface RetryDeps {
 
 export async function runWithRecovery(deps: RetryDeps): Promise<void> {
   let overflowRetried = false;
+  let outputLimitRetried = false;
   for (;;) {
     try {
       await deps.attempt();
@@ -34,6 +37,11 @@ export async function runWithRecovery(deps: RetryDeps): Promise<void> {
       if (!overflowRetried && deps.learnFromOverflow(error)) {
         overflowRetried = true;
         deps.log('Retrying chat request with corrected context size...');
+        continue;
+      }
+      if (!outputLimitRetried && deps.learnFromOutputLimit?.(error)) {
+        outputLimitRetried = true;
+        deps.log('Retrying chat request with a smaller max_tokens...');
         continue;
       }
       const last = deps.lastRequest();

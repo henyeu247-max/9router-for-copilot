@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { estimatePromptTokens, estimateUsage, isEmptyUsage } from '../usageFallback';
 
 describe('usageFallback', () => {
-  test('estimatePromptTokens counts messages and tool schemas (~4 chars/token)', () => {
-    assert.equal(estimatePromptTokens('a'.repeat(400), 0), 100);
-    assert.equal(estimatePromptTokens('a'.repeat(400), 200), 150);
+  test('estimatePromptTokens counts messages and tool schemas on the conservative scale (chars/4 x1.2)', () => {
+    assert.equal(estimatePromptTokens('a'.repeat(400), 0), 120);
+    assert.equal(estimatePromptTokens('a'.repeat(400), 200), 180);
   });
   test('estimateUsage sums prompt and completion and never goes negative', () => {
     const u = estimateUsage(1000, 41);

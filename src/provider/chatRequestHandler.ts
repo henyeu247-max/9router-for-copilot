@@ -167,8 +167,6 @@ export class ChatRequestHandler {
     log(`Converted to ${openAIMessages.length} OpenAI messages`);
     this.logMessageStructure(openAIMessages);
 
-    const configuredMaxOutput =
-      model.maxOutputTokens || TOKEN_CONSTANTS.DEFAULT_OUTPUT_TOKENS;
 
     // Filter the tool catalog up-front so the token budget reflects what we
     // actually send on the wire. Otherwise the unfiltered Copilot tool catalog
@@ -201,6 +199,12 @@ export class ChatRequestHandler {
     // model's current context size, so a corrected context can re-run it.
     const attempt = async (): Promise<void> => {
       const modelMaxContext = catalog.resolveModelMaxContext(model);
+      // Output ceiling: what the picker advertised, lowered by any limit the upstream
+      // has told us about in a "max_tokens is too large" error.
+      const configuredMaxOutput = Math.min(
+        model.maxOutputTokens || TOKEN_CONSTANTS.DEFAULT_OUTPUT_TOKENS,
+        catalog.getLearnedOutputLimit(model.id) ?? Number.MAX_SAFE_INTEGER
+      );
       const maxInputTokens = calculateMaxInputTokens({
         modelMaxContext,
         configuredMaxOutput,
@@ -341,6 +345,7 @@ export class ChatRequestHandler {
         partsReported: () => partsReported,
         isCancelled: () => token.isCancellationRequested,
         learnFromOverflow: (error) => catalog.learnContextSizeFromError(model, error),
+        learnFromOutputLimit: (error) => catalog.learnOutputLimitFromError(model, error),
         lastRequest: () => ({ hasReasoning: lastRequestHadReasoning, hasTools: lastRequestHadTools }),
         degraded,
         log,

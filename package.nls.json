@@ -17,7 +17,7 @@
   "cfg.apiKey": "Deprecated. Use the 'Manage Providers' command to store the API key in VS Code's secret storage. Any value entered here is migrated and cleared on extension activation.",
   "cfg.requestTimeout": "Request timeout in milliseconds",
   "cfg.defaultMaxTokens": "Fallback context window size (input tokens) when the server does not report it",
-  "cfg.defaultMaxOutputTokens": "Fallback maximum output tokens when the server does not report context size",
+  "cfg.defaultMaxOutputTokens": "Maximum output tokens to assume ONLY for models whose server does not declare an output limit (max_completion_tokens / capabilities.maxOutput). A declared limit always wins; output is capped at half of the context window.",
   "cfg.enableImageInput": "Enable image input capability for models that support multimodal requests",
   "cfg.visionProxyEnabled": "Experimental. For models the server explicitly reports as non-vision, describe attached images with a vision-capable model (extra request; may use a paid model) and send the description as text. Has no effect when the server does not report vision support for a model",
   "cfg.visionProxyModel": "Model id used to describe images for the vision proxy (e.g. gc/gemini-2.5-flash). Empty = auto-pick a vision-capable model from the server list",
