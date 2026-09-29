@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { fetchWithRateLimitRetry } from './rateLimitRetry';
 import {
   OpenAIChatCompletionRequest,
   OpenAICompletionRequest,
@@ -278,7 +279,7 @@ export class GatewayClient {
     const timers = this.createStreamTimers(cancellationToken);
 
     try {
-      const response = await fetch(url, {
+      const response = await fetchWithRateLimitRetry(() => fetch(url, {
         method: 'POST',
         headers: { ...this.getHeaders(), 'Content-Type': 'application/json' },
         // `stream_options.include_usage` tells OpenAI-compatible servers to
@@ -292,7 +293,7 @@ export class GatewayClient {
           stream_options: { ...(request.stream_options as object | undefined), include_usage: true },
         }),
         signal: timers.controller.signal,
-      });
+      }), { isCancelled: () => cancellationToken.isCancellationRequested });
 
       // Headers received — switch from the request-deadline timer to the
       // per-chunk inactivity timer so long generations aren't aborted.

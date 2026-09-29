@@ -13,6 +13,8 @@ import {
   estimateTextTokens,
   truncateMessagesToFit,
 } from '../chat/tokenBudget';
+import { randomUUID } from 'node:crypto';
+import { ThinkingBuffer } from '../chat/thinkingBuffer';
 import { tryRepairJson } from '../chat/jsonRepair';
 import { fillMissingRequiredProperties } from '../chat/toolSchema';
 import { pickReasoningEffort } from '../chat/reasoningEffort';
@@ -434,13 +436,26 @@ export class ChatRequestHandler {
     progress: vscode.Progress<vscode.LanguageModelResponsePart>,
     onUsage?: (usage: TokenUsage) => void
   ): StreamReporter {
+    // One stable id + one flushed part per turn (see thinkingBuffer.ts).
+    const thinking = new ThinkingBuffer(
+      {
+        emitThinking: (text, id) => progress.report(new vscode.LanguageModelThinkingPart(text, id)),
+        emitDone: (id) =>
+          progress.report(new vscode.LanguageModelThinkingPart('', id, { vscode_reasoning_done: true })),
+      },
+      randomUUID()
+    );
     return {
-      reportText: (text) => progress.report(new vscode.LanguageModelTextPart(text)),
-      reportThinking: (text) => progress.report(new vscode.LanguageModelThinkingPart(text)),
-      reportThinkingDone: () =>
-        progress.report(new vscode.LanguageModelThinkingPart('', '', { vscode_reasoning_done: true })),
-      reportToolCall: (id, name, args) =>
-        progress.report(new vscode.LanguageModelToolCallPart(id, name, args)),
+      reportText: (text) => {
+        thinking.finish();
+        progress.report(new vscode.LanguageModelTextPart(text));
+      },
+      reportThinking: (text) => thinking.push(text),
+      reportThinkingDone: () => thinking.done(),
+      reportToolCall: (id, name, args) => {
+        thinking.finish();
+        progress.report(new vscode.LanguageModelToolCallPart(id, name, args));
+      },
       reportUsage: (usage) => {
         // VS Code 1.120 picks up token usage emitted as a LanguageModelDataPart
         // with the literal mime type `usage` (see microsoft/vscode#315394).
