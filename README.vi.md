@@ -27,6 +27,7 @@ Dùng model của **9Router** (và mọi gateway tương thích OpenAI) ngay tro
 - Host nghiêm ngặt: tên/id tool dài hơn 64 ký tự được rút gọn khi gửi và ánh xạ ngược lại (chế độ Agent vẫn chạy).
 - **429/503** → thử lại theo `Retry-After` / backoff lũy thừa.
 - **HTTP 400** → thử lại một lần không có `reasoning_effort`; chỉ bỏ tools khi thông báo lỗi nói tools không được hỗ trợ. Không bao giờ thử lại sau khi đã hiện kết quả.
+- **Widget Context Window / compact** theo đúng công thức của VS Code (`maxInput + maxOutput` = cửa sổ thật); usage lấy từ gateway, hoặc tự ước lượng khi gateway không gửi.
 - Học giới hạn context thật từ lỗi tràn; ngân sách token giữ request trong cửa sổ.
 - Model không phải chat (ảnh/audio/embedding/rerank…) bị ẩn khỏi bộ chọn; model chỉ có Responses vẫn giữ.
 

@@ -201,7 +201,7 @@ describe('ModelCatalog discovery integration', () => {
       }),
     });
     const { models } = await h.catalog.getOrFetchModels(fakeToken());
-    assert.equal(models[0].maxInputTokens, 65536);
+    assert.equal(models[0].maxInputTokens + models[0].maxOutputTokens, 65536);
     assert.equal(h.catalog.getContextForModel('a'), 65536);
   });
 
@@ -267,9 +267,11 @@ describe('ModelCatalog.resolveModelMaxContext', () => {
     assert.equal(h.catalog.resolveModelMaxContext(chatInfo('a', 999999)), 2048);
   });
 
-  test('falls back to the picker-facing maxInputTokens before any fetch', () => {
+  test('falls back to maxInputTokens + maxOutputTokens before any fetch', () => {
     const h = makeCatalog({ fetchModels: () => Promise.resolve(modelsResponse()) });
     assert.equal(h.catalog.resolveModelMaxContext(chatInfo('a', 4096)), 4096);
+    const withOutput = { id: 'a', maxInputTokens: 4096, maxOutputTokens: 1024 } as unknown as LanguageModelChatInformation;
+    assert.equal(h.catalog.resolveModelMaxContext(withOutput), 5120);
   });
 
   test('falls back to the default context when nothing is known', () => {

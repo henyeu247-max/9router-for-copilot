@@ -27,6 +27,7 @@ Use **9Router** (and any OpenAI-compatible gateway) models inside GitHub Copilot
 - Strict hosts: tool names/ids over 64 chars are shortened on the wire and mapped back (Agent mode keeps working).
 - **429/503** → retry with `Retry-After` / exponential backoff.
 - **HTTP 400** → retry once without `reasoning_effort`; tools are dropped only when the error message says tools are unsupported. Never after output was shown.
+- **Context Window widget / compaction** follow VS Code's own maths (`maxInput + maxOutput` = real window); token usage is forwarded from the gateway, or estimated when the gateway sends none.
 - Real context limit learned from overflow errors; token budget keeps requests inside the window.
 - Non-chat rows (image/audio/embedding/rerank…) are hidden from the picker; Responses-only models are kept.
 

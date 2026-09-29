@@ -64,9 +64,9 @@ export interface BuildModelInfoInput {
 }
 
 /**
- * Picker-facing fields plus the resolved total context size. Total context is
- * returned separately because the chat-response path uses it to budget output
- * tokens — relying on `maxInputTokens` alone would double-count.
+ * Picker-facing fields plus the resolved total context size. `totalContext` is
+ * returned separately because the chat-response path budgets against the REAL
+ * window; `maxInputTokens + maxOutputTokens` always equals it (see below).
  */
 export interface BuildModelInfoResult {
   readonly info: {
@@ -99,9 +99,16 @@ export interface BuildModelInfoResult {
  * Translate a raw `/v1/models` entry into the picker-facing model info plus
  * the resolved total context.
  *
- * `maxInputTokens` is intentionally set to the full server-reported context so
- * the picker shows the true window size. Output-token budgeting uses
- * `totalContext` separately so the math doesn't double-count.
+ * Contract with VS Code (verified against microsoft/vscode `getModelContextWindowTotal`
+ * and the Context Window widget): the window VS Code shows and the point where it
+ * compacts are derived from `maxInputTokens + maxOutputTokens`, and compaction
+ * triggers at ~80-90% of `maxInputTokens` (agentIntent.ts). So
+ *
+ *   maxInputTokens  = totalContext - maxOutputTokens
+ *
+ * Reporting the full window as `maxInputTokens` (the old behaviour) inflated the
+ * denominator by `maxOutputTokens` and let a prompt at the compaction trigger plus
+ * the reserved output overrun the real window.
  */
 export function buildModelInfo({
   model,
@@ -151,7 +158,7 @@ export function buildModelInfo({
     name: friendlyName,
     family: inferModelFamily(model.id),
     version: friendlyName,
-    maxInputTokens: totalContext,
+    maxInputTokens: Math.max(1, totalContext - maxOutputTokens),
     maxOutputTokens,
     capabilities,
     detail: PROVIDER_DETAIL_LABEL,

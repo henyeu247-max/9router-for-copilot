@@ -20,6 +20,7 @@ import { degradeRequest, type DegradeStep } from '../api/degrade';
 import { writeDump, type DumpFs } from '../api/requestDump';
 import * as fsp from 'node:fs/promises';
 import { runWithRecovery } from '../api/retryLoop';
+import { estimatePromptTokens, estimateUsage, isEmptyUsage } from '../chat/usageFallback';
 import { buildToolNameMap, restoreToolName, rewriteHistoryToolNames, type ToolNameMap } from '../chat/toolNames';
 import { tryRepairJson } from '../chat/jsonRepair';
 import { fillMissingRequiredProperties } from '../chat/toolSchema';
@@ -314,6 +315,15 @@ export class ChatRequestHandler {
         isCancelled: () => token.isCancellationRequested,
         resolveToolCallArgs: (toolCall) => this.resolveToolCallArgs(toolCall, toolSchemas, toolNameMap),
       });
+
+      // The server sent no usage (many gateways ignore stream_options.include_usage):
+      // synthesize one so VS Code's Context Window widget and compaction do not
+      // stay at 0%. A server-reported value, when present, was already forwarded.
+      if (isEmptyUsage(capturedUsage ? { prompt_tokens: capturedUsage.prompt, completion_tokens: capturedUsage.completion, total_tokens: capturedUsage.total } : undefined)) {
+        const est = estimateUsage(estimatePromptTokens(inputText, toolsSerializedLength), stats.completionChars ?? 0);
+        log(`Server reported no usage; estimated prompt=${est.prompt_tokens}, completion=${est.completion_tokens} (chars/4).`);
+        reporter.reportUsage(est);
+      }
 
       log(
         `Completed chat request, received ${stats.totalContentLength} chars, ${stats.totalTextParts} text parts, ${stats.totalToolCalls} tool calls`

@@ -42,8 +42,8 @@ export class ModelCatalog {
   private fetchLast?: { at: number; result: LanguageModelChatInformation[] };
   /**
    * Real server-reported context per model id (`max_model_len` / etc.).
-   * Needed because the picker-facing `maxInputTokens` is the full context
-   * on purpose — the chat-response code path needs the separate true value
+   * Needed because the picker-facing `maxInputTokens` excludes the output
+   * allowance on purpose — the chat-response code path needs the separate true value
    * so it doesn't double-count when budgeting output tokens.
    */
   private readonly contextByModelId: Map<string, number> = new Map();
@@ -299,9 +299,8 @@ export class ModelCatalog {
 
   /**
    * Resolve the real server-reported context size for a model. The
-   * picker-facing `maxInputTokens` equals `totalContext`, so naive
-   * `maxInputTokens + maxOutputTokens` would overshoot by `maxOutputTokens`
-   * and cause context-length errors at the server.
+   * picker-facing `maxInputTokens` is `totalContext - maxOutputTokens`, so
+   * `maxInputTokens + maxOutputTokens` equals the real window (never more).
    */
   public resolveModelMaxContext(model: LanguageModelChatInformation): number {
     let context: number;
@@ -310,10 +309,10 @@ export class ModelCatalog {
       context = cached;
     } else if (model.maxInputTokens && model.maxInputTokens > 0) {
       // Fallback path: the model list hasn't been fetched yet in this session
-      // (e.g. VS Code routed a cached chat directly to the provider). Use the
-      // picker-facing input window, which equals totalContext after the
-      // provideLanguageModelChatInformation change.
-      context = model.maxInputTokens;
+      // (e.g. VS Code routed a cached chat directly to the provider). The picker
+      // reports maxInputTokens = totalContext - maxOutputTokens, so add the
+      // output allowance back to recover the real window.
+      context = model.maxInputTokens + Math.max(0, model.maxOutputTokens ?? 0);
     } else {
       context = TOKEN_CONSTANTS.DEFAULT_CONTEXT_TOKENS;
     }

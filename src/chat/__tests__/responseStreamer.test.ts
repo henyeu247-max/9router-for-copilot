@@ -357,3 +357,43 @@ describe('isEmptyStreamResult', () => {
     );
   });
 });
+
+describe('streamResponse completionChars (feeds the usage estimate)', () => {
+  test('counts text, reasoning and tool-call name+arguments', async () => {
+    const { reporter } = makeReporter();
+    const stats = await streamResponse({
+      chunks: iter([
+        { reasoning_content: 'think' },
+        { content: 'hello' },
+        { finished_tool_calls: [{ id: '1', name: 'read', arguments: '{"a":1}' }] },
+      ]),
+      reporter,
+      isCancelled: () => false,
+      resolveToolCallArgs: identityArgs,
+    });
+    assert.equal(stats.completionChars, 5 + 5 + 'read'.length + '{"a":1}'.length);
+  });
+  test('stays undefined/0 for an empty stream', async () => {
+    const { reporter } = makeReporter();
+    const stats = await streamResponse({ chunks: iter([]), reporter, isCancelled: () => false, resolveToolCallArgs: identityArgs });
+    assert.equal(stats.completionChars ?? 0, 0);
+  });
+});
+
+describe('streamResponse ignores empty usage frames', () => {
+  test('an all-zero usage chunk is not forwarded; a later real one is', async () => {
+    const { reporter, events } = makeReporter();
+    await streamResponse({
+      chunks: iter([
+        { content: 'x', usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } },
+        { usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 } },
+      ]),
+      reporter,
+      isCancelled: () => false,
+      resolveToolCallArgs: identityArgs,
+    });
+    const usage = events.filter((e) => e.kind === 'usage');
+    assert.equal(usage.length, 1);
+    assert.equal(usage[0].usage?.prompt_tokens, 10);
+  });
+});

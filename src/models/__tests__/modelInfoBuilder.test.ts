@@ -102,7 +102,8 @@ describe('buildModelInfo context resolution', () => {
       capabilities: {},
     });
     assert.equal(totalContext, 131072);
-    assert.equal(info.maxInputTokens, 131072);
+    // VS Code contract: input + output == the real window.
+    assert.equal(info.maxInputTokens + info.maxOutputTokens, 131072);
     assert.equal(hasServerReportedContext, true);
   });
 
@@ -159,7 +160,7 @@ describe('buildModelInfo context resolution', () => {
       contextOverride: 32768,
     });
     assert.equal(totalContext, 32768);
-    assert.equal(info.maxInputTokens, 32768);
+    assert.equal(info.maxInputTokens + info.maxOutputTokens, 32768);
     // Server still reported a value; the override just outranked it.
     assert.equal(hasServerReportedContext, true);
   });

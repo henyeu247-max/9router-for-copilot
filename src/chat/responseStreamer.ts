@@ -35,6 +35,8 @@ export interface StreamChunk {
 export interface StreamStats {
   /** Number of content characters observed across all chunks. */
   totalContentLength: number;
+  /** Characters of text + reasoning + tool-call arguments (input for a usage estimate). */
+  completionChars?: number;
   totalToolCalls: number;
   totalTextParts: number;
   hadThinking: boolean;
@@ -113,6 +115,7 @@ function processStreamChunk(
   if (chunk.reasoning_content) {
     stats.hadThinking = true;
     inReasoningField = true;
+    stats.completionChars = (stats.completionChars ?? 0) + chunk.reasoning_content.length;
     reporter.reportThinking(chunk.reasoning_content);
   }
 
@@ -122,6 +125,7 @@ function processStreamChunk(
       reporter.reportThinkingDone();
     }
     stats.totalContentLength += chunk.content.length;
+    stats.completionChars = (stats.completionChars ?? 0) + chunk.content.length;
     for (const piece of parser.process(chunk.content)) {
       reportParserPiece(piece, reporter, stats, false);
     }
@@ -130,12 +134,17 @@ function processStreamChunk(
   if (chunk.finished_tool_calls?.length) {
     for (const toolCall of chunk.finished_tool_calls) {
       stats.totalToolCalls++;
+      stats.completionChars = (stats.completionChars ?? 0) + toolCall.name.length + toolCall.arguments.length;
       const args = resolveToolCallArgs(toolCall);
       reporter.reportToolCall(toolCall.id, toolCall.name, args);
     }
   }
 
-  if (chunk.usage && !stats.reportedUsage) {
+  // An all-zero usage frame carries no information (some gateways emit one when they
+  // cannot count); forwarding it would pin the widget at 0%, so it is skipped and the
+  // caller falls back to an estimate.
+  const hasRealUsage = !!chunk.usage && (chunk.usage.prompt_tokens > 0 || chunk.usage.completion_tokens > 0);
+  if (chunk.usage && hasRealUsage && !stats.reportedUsage) {
     // Latch on the first usage frame; some servers re-emit the same totals
     // across the trailing few chunks. Reporting twice would briefly double
     // VS Code's running context-window count before settling.
