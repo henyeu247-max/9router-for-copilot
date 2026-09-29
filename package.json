@@ -2,7 +2,7 @@
   "name": "9router-for-github-copilot",
   "displayName": "9Router for Github Copilot (OpenAI compatible)",
   "description": "Connect GitHub Copilot to 9Router and any OpenAI-compatible server for open-source models",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "publisher": "henyeu247-max",
   "icon": "assets/icon.png",
   "private": true,
@@ -168,6 +168,12 @@
           "default": false,
           "description": "Expose '/' in gateway model ids as '::' in the model picker (e.g. xai/grok-4.5 -> xai::grok-4.5). Enable only if ids with '/' collide with other providers or break picker search. Changing it resets saved model selections; the gateway still receives the original id",
           "order": 6.3
+        },
+        "9router-for-github-copilot.modelFilter": {
+          "type": "string",
+          "default": "",
+          "description": "Only list models whose id matches this regex (or substring if the regex is invalid), e.g. ^(cc|gh)/ . Empty = all models. A filter that matches nothing is ignored",
+          "order": 6.4
         },
         "9router-for-github-copilot.enableToolCalling": {
           "type": "boolean",

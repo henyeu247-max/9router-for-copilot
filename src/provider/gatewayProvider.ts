@@ -39,6 +39,7 @@ const MODEL_AFFECTING_KEYS: readonly string[] = [
   '9router-for-github-copilot.defaultMaxOutputTokens',
   '9router-for-github-copilot.enableImageInput',
   '9router-for-github-copilot.visionProxyEnabled',
+  '9router-for-github-copilot.modelFilter',
   '9router-for-github-copilot.encodeSlashInModelId',
   '9router-for-github-copilot.visionProxyModel',
   '9router-for-github-copilot.enableToolCalling',

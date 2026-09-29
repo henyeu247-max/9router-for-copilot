@@ -194,6 +194,7 @@ describe('streamChatCompletion reasoning field handling (issue #59)', () => {
     defaultMaxOutputTokens: 4096,
     enableImageInput: false,
     visionProxyEnabled: false,
+    modelFilter: '',
     visionProxyModel: '',
     enableToolCalling: true,
     parallelToolCalling: false,

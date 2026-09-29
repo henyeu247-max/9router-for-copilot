@@ -147,11 +147,22 @@ interface StreamTimers {
  * `streamChatCompletion` so the main function stays under the
  * cognitive-complexity budget.
  */
+/** Chat HTTP failure that keeps the numeric status so callers needn't regex the message. */
+export class ChatHttpError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = 'ChatHttpError';
+  }
+}
+
 async function assertChatStreamResponseOk(response: Response): Promise<void> {
   if (response.ok && response.body) { return; }
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Chat completion failed: ${response.status} ${response.statusText} - ${errorText}`);
+    throw new ChatHttpError(response.status, `Chat completion failed: ${response.status} ${response.statusText} - ${errorText}`);
   }
   throw new Error('Response body is null');
 }
@@ -309,6 +320,9 @@ export class GatewayClient {
         yield { content: '', reasoning_content: '', tool_calls: [], finished_tool_calls: remaining };
       }
     } catch (error) {
+      if (error instanceof ChatHttpError) {
+        throw error;
+      }
       if (error instanceof Error) {
         throw new Error(`Chat completion request failed: ${describeFetchError(error)}`);
       }

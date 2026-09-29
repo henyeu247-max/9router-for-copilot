@@ -24,6 +24,7 @@ function fakeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     defaultMaxOutputTokens: 4096,
     enableImageInput: true,
     visionProxyEnabled: false,
+    modelFilter: '',
     visionProxyModel: '',
     enableToolCalling: true,
     parallelToolCalling: true,
@@ -317,5 +318,56 @@ describe('ModelCatalog.learnContextSizeFromError', () => {
     assert.equal(h.catalog.resolveModelMaxContext(model), 4096);
     h.catalog.clearLearnedContexts();
     assert.equal(h.catalog.resolveModelMaxContext(model), 8192);
+  });
+});
+
+describe('ModelCatalog: catalog shaping (integration)', () => {
+  const resp = (): OpenAIModelsResponse =>
+    ({
+      object: 'list',
+      data: [
+        { id: 'cc/claude', object: 'model', created: 0, owned_by: 'cc', capabilities: { vision: true } },
+        { id: 'oc/text-only', object: 'model', created: 0, owned_by: 'oc', capabilities: { vision: false } },
+        { id: 'img/gen', object: 'model', created: 0, owned_by: 'img', type: 'image' },
+        { id: 'emb/x', object: 'model', created: 0, owned_by: 'emb', kind: 'embedding' },
+        { id: 'cx/resp', object: 'model', created: 0, owned_by: 'cx', supported_endpoints: ['responses'] },
+      ],
+    }) as unknown as OpenAIModelsResponse;
+
+  test('drops non-chat rows but keeps responses-only models', async () => {
+    const h = makeCatalog({ fetchModels: () => Promise.resolve(resp()) });
+    const { models } = await h.catalog.getOrFetchModels(fakeToken());
+    assert.deepEqual(models.map((m) => m.id), ['cc/claude', 'oc/text-only', 'cx/resp']);
+  });
+
+  test('modelFilter limits the list; a filter matching nothing is ignored and logged', async () => {
+    const h = makeCatalog({ fetchModels: () => Promise.resolve(resp()), config: fakeConfig({ modelFilter: '^cc/' }) });
+    assert.deepEqual((await h.catalog.getOrFetchModels(fakeToken())).models.map((m) => m.id), ['cc/claude']);
+
+    const logs: string[] = [];
+    const client = { fetchModels: () => Promise.resolve(resp()) } as unknown as GatewayClient;
+    const cat = new ModelCatalog({
+      client, discovery: noDiscovery(), getConfig: () => fakeConfig({ modelFilter: 'zzz' }),
+      log: (m) => logs.push(m), onStatusChanged: () => undefined,
+    });
+    assert.equal((await cat.getOrFetchModels(fakeToken())).models.length, 3);
+    assert.ok(logs.some((l) => l.includes("matches no model")));
+  });
+
+  test('exposes the explicit vision flag; unknown stays undefined', async () => {
+    const h = makeCatalog({ fetchModels: () => Promise.resolve(resp()) });
+    await h.catalog.getOrFetchModels(fakeToken());
+    assert.equal(h.catalog.modelVision('cc/claude'), true);
+    assert.equal(h.catalog.modelVision('oc/text-only'), false);
+    assert.equal(h.catalog.modelVision('cx/resp'), undefined);
+  });
+
+  test('vision proxy keeps imageInput on for text-only models; off => follows the server flag', async () => {
+    const on = makeCatalog({ fetchModels: () => Promise.resolve(resp()), config: fakeConfig({ visionProxyEnabled: true }) });
+    const a = (await on.catalog.getOrFetchModels(fakeToken())).models.find((m) => m.id === 'oc/text-only');
+    assert.equal(a?.capabilities?.imageInput, true);
+    const off = makeCatalog({ fetchModels: () => Promise.resolve(resp()) });
+    const b = (await off.catalog.getOrFetchModels(fakeToken())).models.find((m) => m.id === 'oc/text-only');
+    assert.equal(b?.capabilities?.imageInput, false);
   });
 });

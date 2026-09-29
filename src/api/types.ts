@@ -17,6 +17,10 @@ export interface OpenAIModel {
    * 9Router capabilities block. Carries contextWindow,
    * maxOutput, vision, tools, reasoning, search, and other feature flags.
    */
+  /** Specialty rows (image/audio/embedding/...) set these; chat rows usually omit them. */
+  type?: string;
+  kind?: string;
+  supported_endpoints?: string[];
   capabilities?: {
     vision?: boolean;
     pdf?: boolean;

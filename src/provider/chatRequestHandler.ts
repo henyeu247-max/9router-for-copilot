@@ -16,6 +16,8 @@ import {
 import { randomUUID } from 'node:crypto';
 import { ThinkingBuffer } from '../chat/thinkingBuffer';
 import { describeImagesInMessages, messagesHaveImages, pickVisionModelId } from '../chat/visionProxy';
+import { degradeRequest, type DegradeStep } from '../api/degrade';
+import { runWithRecovery } from '../api/retryLoop';
 import { buildToolNameMap, restoreToolName, rewriteHistoryToolNames, type ToolNameMap } from '../chat/toolNames';
 import { tryRepairJson } from '../chat/jsonRepair';
 import { fillMissingRequiredProperties } from '../chat/toolSchema';
@@ -184,6 +186,10 @@ export class ChatRequestHandler {
     };
 
     let capturedUsage: TokenUsage | undefined;
+    // Features already stripped after an HTTP 400; sticks across the retries of one turn.
+    const degraded = new Set<DegradeStep>();
+    let lastRequestHadReasoning = false;
+    let lastRequestHadTools = false;
 
     // The whole budget → request → stream pipeline, resolved against the
     // model's current context size, so a corrected context can re-run it.
@@ -259,7 +265,7 @@ export class ChatRequestHandler {
         extraModelOptions: config.extraModelOptions,
       });
 
-      const requestOptions = buildChatRequest({
+      let requestOptions = buildChatRequest({
         model: model.id,
         messages: truncatedMessages,
         maxTokens: safeMaxOutputTokens,
@@ -291,6 +297,11 @@ export class ChatRequestHandler {
       const reporter = this.createStreamReporter(trackingProgress, toolNameMap, (usage) => {
         capturedUsage = usage;
       });
+      for (const step of degraded) {
+        requestOptions = degradeRequest(requestOptions, step);
+      }
+      lastRequestHadReasoning = 'reasoning_effort' in requestOptions;
+      lastRequestHadTools = Array.isArray(requestOptions.tools) && requestOptions.tools.length > 0;
       const chunks = this.deps.client.streamChatCompletion(requestOptions, token);
       const stats = await streamResponse({
         chunks: chunks as AsyncIterable<StreamChunk>,
@@ -310,24 +321,15 @@ export class ChatRequestHandler {
     };
 
     try {
-      try {
-        await attempt();
-      } catch (error) {
-        // Context-overflow errors carry the server's real context size
-        // (issue #55: llama-server router mode reports nothing up-front, so
-        // the first request can overshoot). Learn it and, if nothing has been
-        // streamed to the chat view yet, transparently retry once with the
-        // corrected budget.
-        if (
-          !catalog.learnContextSizeFromError(model, error) ||
-          partsReported ||
-          token.isCancellationRequested
-        ) {
-          throw error;
-        }
-        log('Retrying chat request with corrected context size...');
-        await attempt();
-      }
+      await runWithRecovery({
+        attempt,
+        partsReported: () => partsReported,
+        isCancelled: () => token.isCancellationRequested,
+        learnFromOverflow: (error) => catalog.learnContextSizeFromError(model, error),
+        lastRequest: () => ({ hasReasoning: lastRequestHadReasoning, hasTools: lastRequestHadTools }),
+        degraded,
+        log,
+      });
       this.deps.onCompleted(model.id, modelName, capturedUsage);
       this.deps.onRequestState({
         kind: 'complete',

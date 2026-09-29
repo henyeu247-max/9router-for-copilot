@@ -19,6 +19,8 @@ VS Code's built-in BYOK works great for well-behaved models. 9Router adds a resi
 - **Model outputs tool names as text?** Lowers temperature and stabilises formatting.
 - **Strict host rejects long tool names (Meta Llama API: max 64 chars)?** Tool names and call ids are shortened deterministically on the wire and mapped back, so Agent mode keeps working.
 - **Thinking shows as dozens of "Finished with N steps" fragments?** Reasoning is buffered into a single thinking block per turn.
+- **Backend rejects `reasoning_effort` or `tools` with HTTP 400?** Retries once without `reasoning_effort`; tools are dropped only when the error message says tools are unsupported (never silently on an unrelated 400). Only before any output was shown.
+- **Image/audio/embedding rows in the model list?** Filtered out (they always fail on chat); Responses-only models are kept.
 - **HTTP 429 / 503?** Retries with `Retry-After` (or exponential backoff) before failing.
 
 Inference stays on your server. No per-token fees. Doesn't consume Copilot premium quota.
@@ -37,6 +39,7 @@ Inference stays on your server. No per-token fees. Doesn't consume Copilot premi
 | `9router-for-github-copilot.agentTemperature`    | `0`                         | Tool-call stability (lower = stricter)                  |
 | `9router-for-github-copilot.modelContextWindows` | `{}`                        | Per-model context overrides, e.g. `{"qwen3-8b": 32768}` |
 | `9router-for-github-copilot.perModelOptions`     | `{}`                        | Per-model sampler params (temperature, top_p, etc.)     |
+| `9router-for-github-copilot.modelFilter`         | `""`                        | Regex/substring limiting which model ids are listed     |
 | `9router-for-github-copilot.visionProxyEnabled`  | `false`                     | Describe images for non-vision models (see below)       |
 | `9router-for-github-copilot.visionProxyModel`    | `""`                        | Model used to describe images; empty = auto-pick        |
 | `9router-for-github-copilot.encodeSlashInModelId`| `false`                     | Show `/` in model ids as `::` in the picker (see below) |

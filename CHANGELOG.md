@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.2.0
+
+### Added
+- **Non-chat model filtering** (`src/models/catalogFilter.ts`): rows typed image/video/audio/tts/stt/embedding/rerank/moderation/webSearch/webFetch, or whose `supported_endpoints` lack chat/responses, are hidden from the picker. Responses-only models stay.
+- **`modelFilter` setting**: regex (or substring if invalid) on model ids; a filter that matches nothing is ignored and logged so a typo can't blank the picker.
+- **HTTP 400 graceful degradation** (`src/api/degrade.ts`, `src/api/retryLoop.ts`): retry once without `reasoning_effort`; drop tools only when the error message points at tools. Never after output was streamed or after cancellation; bounded to 4 attempts total together with the single context-overflow retry. Chat HTTP failures now carry a typed `ChatHttpError.status`.
+
+### Licensing
+- `NOTICE` now also credits diegosouzapw/OmniCopilot (MIT).
+
+### Notes
+- Not ported on purpose: Copilot Agents-window registration (proposed VS Code API), price/cost display, request dumps, routing classifier.
+- Test suite: 532 tests (was 505).
+
 ## 2.1.0
 
 Ported from the 0.9.x line and hardened against the OmniCopilot / 9Router catalog contract.

@@ -4,6 +4,7 @@ import { GatewayConfig } from '../config/gatewayConfig';
 import { DiscoveredModelInfo, ModelDiscovery } from '../discovery/types';
 import { TOKEN_CONSTANTS } from '../chat/tokenBudget';
 import { parseContextOverflowError, resolveContextWindowOverride } from '../chat/contextWindow';
+import { applyModelFilter, selectChatModels } from '../models/catalogFilter';
 import { dedupeModels } from '../models/modelDisplay';
 import { buildModelInfo } from '../models/modelInfoBuilder';
 
@@ -183,7 +184,11 @@ export class ModelCatalog {
       return [];
     }
 
-    const uniqueModels = dedupeModels(response.data);
+    const uniqueModels = applyModelFilter(
+      selectChatModels(dedupeModels(response.data)),
+      this.deps.getConfig().modelFilter,
+      (f) => log(`modelFilter '${f}' matches no model; ignoring it so the picker is not empty`)
+    );
     if (uniqueModels.length !== response.data.length) {
       log(
         `Server returned ${response.data.length} models, ${uniqueModels.length} unique after dedupe`

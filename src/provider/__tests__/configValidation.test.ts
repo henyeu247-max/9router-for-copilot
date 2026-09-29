@@ -18,6 +18,7 @@ function baseConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     defaultMaxOutputTokens: 4096,
     enableImageInput: true,
     visionProxyEnabled: false,
+    modelFilter: '',
     visionProxyModel: '',
     enableToolCalling: true,
     parallelToolCalling: true,

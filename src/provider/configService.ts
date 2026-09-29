@@ -52,6 +52,7 @@ export class ConfigService {
       ),
       enableImageInput: config.get<boolean>('enableImageInput', true),
       visionProxyEnabled: config.get<boolean>('visionProxyEnabled', false),
+      modelFilter: config.get<string>('modelFilter', '').trim(),
       visionProxyModel: config.get<string>('visionProxyModel', '').trim(),
       enableToolCalling: config.get<boolean>('enableToolCalling', true),
       parallelToolCalling: config.get<boolean>('parallelToolCalling', true),

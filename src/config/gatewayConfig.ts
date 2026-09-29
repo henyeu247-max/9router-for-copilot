@@ -13,6 +13,8 @@ export interface GatewayConfig {
   enableImageInput: boolean;
   /** Describe images with a vision model for models that can't see them (instead of dropping). */
   visionProxyEnabled: boolean;
+  /** Regex (or substring) limiting which model ids appear in the picker; empty = all. */
+  modelFilter: string;
   /** Explicit vision model id for the proxy; empty = auto-pick from the model list. */
   visionProxyModel: string;
   enableToolCalling: boolean;
