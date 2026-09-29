@@ -13,6 +13,9 @@ Ported from the 0.9.x line and hardened against the OmniCopilot / 9Router catalo
 ### Fixed
 - **Thinking display**: reasoning deltas are buffered and emitted as **one** `LanguageModelThinkingPart` with a stable id per turn, then closed with `vscode_reasoning_done`. Previously each token created its own visible step ("Finished with N steps"). Reasoning arriving after the block closed (interleaved models) is ignored; the block is closed on text, tool call, end of stream.
 
+### Licensing
+- `LICENSE` now lists every copyright holder (arbs-io, hotrungnhan, henyeu247-max); added `NOTICE` with third-party attribution (incl. Vizards/deepseek-v4-for-copilot for adapted code). Publisher/repository metadata point to henyeu247-max. Extension id is now `henyeu247-max.9router-for-github-copilot` (settings keys unchanged).
+
 ### Notes
 - Changing `encodeSlashInModelId` resets saved model selections in the picker.
 - Vision proxy only triggers when the server explicitly reports `vision: false`; it may call a paid model, hence off by default.

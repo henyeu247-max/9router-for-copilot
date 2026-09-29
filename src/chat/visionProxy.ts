@@ -3,6 +3,7 @@
  * silently dropping images, describe them with a vision-capable model and
  * inline the description as text.
  *
+ * Prompt text adapted from Vizards/deepseek-v4-for-copilot (MIT) - see NOTICE.
  * Pure (no `vscode` import) so it is unit-testable under `node --test`.
  */
 export const IMAGE_DESCRIPTION_PROMPT =

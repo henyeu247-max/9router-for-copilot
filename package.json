@@ -3,13 +3,13 @@
   "displayName": "9Router for Github Copilot (OpenAI compatible)",
   "description": "Connect GitHub Copilot to 9Router and any OpenAI-compatible server for open-source models",
   "version": "2.1.0",
-  "publisher": "hotrungnhan",
+  "publisher": "henyeu247-max",
   "icon": "assets/icon.png",
   "private": true,
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/hotrungnhan/9router-for-github-copilot.git"
+    "url": "https://github.com/henyeu247-max/9router-for-copilot.git"
   },
   "engines": {
     "vscode": "^1.125.0"

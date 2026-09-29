@@ -78,7 +78,7 @@ VS Code identifies a model as `vendor/id`, so a gateway id such as `xai/grok-4.5
 
 ```jsonc
 "extensions.supportAgentsWindow": {
-  "hotrungnhan.9router-for-github-copilot": true
+  "henyeu247-max.9router-for-github-copilot": true
 }
 ```
 
@@ -99,3 +99,11 @@ This project is a fork of [arbs-io/github-copilot-llm-gateway](https://github.co
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## License and attribution
+
+MIT. This project is a derivative work: it builds on
+[hotrungnhan/9router-for-github-copilot](https://github.com/hotrungnhan/9router-for-github-copilot)
+(itself based on code by arbs-io) and includes portions adapted from
+[Vizards/deepseek-v4-for-copilot](https://github.com/Vizards/deepseek-v4-for-copilot).
+Original copyright notices are kept in [LICENSE](LICENSE) and [NOTICE](NOTICE).

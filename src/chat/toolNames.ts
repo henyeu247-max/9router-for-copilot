@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
  * Names are deterministic (hash suffix when altered) and mapped back to the
  * original VS Code tool name on the response so Agent mode still runs the right tool.
  *
+ * Approach adapted from Vizards/deepseek-v4-for-copilot (MIT) - see NOTICE.
  * Pure (no `vscode` import) so it is unit-testable under `node --test`.
  */
 export const MAX_TOOL_FUNCTION_NAME_LEN = 64;
