@@ -37,6 +37,11 @@ export class LanguageModelDataPart {
   }
 }
 
+export const l10n = {
+  t: (message: string, ...args: unknown[]): string =>
+    message.replace(/\{(\d+)\}/g, (_m, i: string) => String(args[Number(i)])),
+};
+
 export enum LanguageModelChatToolMode {
   Auto = 1,
   Required = 2,

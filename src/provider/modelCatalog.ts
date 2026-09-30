@@ -8,6 +8,8 @@ import { applyModelFilter, selectChatModels } from '../models/catalogFilter';
 import { parseOutputLimitError } from '../chat/outputLimitError';
 import { dedupeModels } from '../models/modelDisplay';
 import { buildModelInfo } from '../models/modelInfoBuilder';
+import { pickReasoningEffort } from '../chat/reasoningEffort';
+import { resolvePerModelOptions } from '../config/perModelOptions';
 
 interface ModelCatalogDeps {
   client: GatewayClient;
@@ -230,6 +232,10 @@ export class ModelCatalog {
         nextVisionByModelId.set(model.id, visionFlag);
         const { info, totalContext, hasServerReportedContext } = buildModelInfo({
           model,
+          preferredEffort: pickReasoningEffort({
+            perModelOptions: resolvePerModelOptions(model.id, config.perModelOptions),
+            extraModelOptions: config.extraModelOptions,
+          }),
           defaultMaxTokens: config.defaultMaxTokens,
           defaultMaxOutputTokens: config.defaultMaxOutputTokens,
           capabilities: {

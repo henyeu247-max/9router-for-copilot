@@ -45,6 +45,8 @@ const MODEL_AFFECTING_KEYS: readonly string[] = [
   '9router-for-github-copilot.visionProxyModel',
   '9router-for-github-copilot.enableToolCalling',
   '9router-for-github-copilot.modelContextWindows',
+  '9router-for-github-copilot.perModelOptions',
+  '9router-for-github-copilot.extraModelOptions',
 ];
 
 export class GatewayProvider

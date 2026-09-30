@@ -398,3 +398,40 @@ describe('ModelCatalog.learnOutputLimitFromError', () => {
     assert.equal(h.catalog.getLearnedOutputLimit('a'), undefined);
   });
 });
+
+describe('ModelCatalog thinking-effort picker follows the user settings', () => {
+  const reasoningModels = (): OpenAIModelsResponse => ({
+    object: 'list',
+    data: [
+      {
+        id: 'x/kimi-k3',
+        object: 'model',
+        created: 0,
+        owned_by: 'test',
+        capabilities: { reasoning: true, thinkingFormat: 'kimi', thinkingRange: ['low', 'high', 'max'] },
+      },
+    ],
+  });
+  const schemaOf = async (config: GatewayConfig) => {
+    const h = makeCatalog({ fetchModels: () => Promise.resolve(reasoningModels()), config });
+    const { models } = await h.catalog.getOrFetchModels(fakeToken());
+    return (models[0] as { configurationSchema?: { properties: Record<string, { enum: string[]; default?: string }> } })
+      .configurationSchema?.properties.reasoningEffort;
+  };
+
+  test('offers the server list and forces no default when nothing is configured', async () => {
+    const p = await schemaOf(fakeConfig());
+    assert.deepEqual(p?.enum, ['low', 'high', 'max']);
+    assert.equal(p?.default, undefined);
+  });
+
+  test('perModelOptions (wildcard) becomes the default when the model offers that level', async () => {
+    const p = await schemaOf(fakeConfig({ perModelOptions: { 'x/*': { reasoningEffort: 'high' } } }));
+    assert.equal(p?.default, 'high');
+  });
+
+  test('extraModelOptions applies too; a level the model does not offer is not made the default', async () => {
+    assert.equal((await schemaOf(fakeConfig({ extraModelOptions: { reasoning_effort: 'max' } })))?.default, 'max');
+    assert.equal((await schemaOf(fakeConfig({ extraModelOptions: { reasoningEffort: 'medium' } })))?.default, undefined);
+  });
+});

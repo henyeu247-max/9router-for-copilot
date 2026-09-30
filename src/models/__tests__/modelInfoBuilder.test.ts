@@ -298,11 +298,12 @@ describe('buildModelInfo reasoning-effort configurationSchema', () => {
       'medium',
       'high',
     ]);
-    assert.equal(info.configurationSchema?.properties.reasoningEffort.default, 'medium');
+    // No hard-coded default: VS Code would inject it into every request.
+    assert.equal(info.configurationSchema?.properties.reasoningEffort.default, undefined);
     assert.equal(info.configurationSchema?.properties.reasoningEffort.type, 'string');
   });
 
-  test('emits a Claude-adaptive schema with xhigh and max, defaulting to high', () => {
+  test('emits a Claude-adaptive schema (xhigh is sent as high, so it is not offered), with no forced default', () => {
     const { info } = buildModelInfo({
       model: baseModel({
         id: 'cl/anthropic/claude-opus-4.7',
@@ -317,11 +318,8 @@ describe('buildModelInfo reasoning-effort configurationSchema', () => {
       'medium',
       'high',
       'max',
-      'xhigh',
     ]);
-    // Claude family default = 'high', per the Copilot BYOK heuristic
-    // (microsoft/vscode#315181).
-    assert.equal(info.configurationSchema?.properties.reasoningEffort.default, 'high');
+    assert.equal(info.configurationSchema?.properties.reasoningEffort.default, undefined);
   });
 
   test('omits the schema when the model is not reasoning-capable', () => {
@@ -361,10 +359,11 @@ describe('buildModelInfo reasoning-effort configurationSchema', () => {
       defaultMaxOutputTokens: 2048,
       capabilities: {},
     });
+    // 9Router only forwards low|high|max to z.ai (medium is folded into high).
     assert.deepEqual(info.configurationSchema?.properties.reasoningEffort.enum, [
       'low',
-      'medium',
       'high',
+      'max',
     ]);
   });
 
@@ -385,39 +384,34 @@ describe('buildModelInfo reasoning-effort configurationSchema', () => {
     ]);
   });
 
-  test('omits `default` when the preferred level is not in the enum', () => {
-    const { info } = buildModelInfo({
+  const claudeBudget = (preferredEffort?: string, maxOutput = 65536) =>
+    buildModelInfo({
       model: baseModel({
         id: 'cl/anthropic/claude-haiku-4.5',
-        capabilities: {
-          reasoning: true,
-          thinkingFormat: 'claude-budget',
-          // small enum — no `high` available
-        },
+        capabilities: { reasoning: true, thinkingFormat: 'claude-budget', maxOutput },
       }),
-      defaultMaxTokens: 8192,
+      defaultMaxTokens: 262144,
       defaultMaxOutputTokens: 2048,
       capabilities: {},
-    });
-    // claude-budget → ['low','medium','high','max']; preferred is 'high' which IS
-    // in the enum, so default should be set. Use a non-Claude name to
-    // verify the no-default fallback.
-    const fallback = buildModelInfo({
-      model: baseModel({
-        id: 'cbai/claude-haiku-lite',
-        capabilities: {
-          reasoning: true,
-          thinkingFormat: 'claude-budget',
-        },
-      }),
-      defaultMaxTokens: 8192,
-      defaultMaxOutputTokens: 2048,
-      capabilities: {},
-    });
-    // Both produce schemas — the family detector catches the "claude"
-    // substring in either case, so `default` will be `'high'`.
-    assert.equal(info.configurationSchema?.properties.reasoningEffort.default, 'high');
-    assert.equal(fallback.info.configurationSchema?.properties.reasoningEffort.default, 'high');
+      ...(preferredEffort !== undefined ? { preferredEffort } : {}),
+    }).info.configurationSchema?.properties.reasoningEffort;
+
+  test('has no `default` unless the user configured a level (VS Code injects defaults into every request)', () => {
+    assert.equal(claudeBudget()?.default, undefined);
+  });
+
+  test('the level configured in settings becomes the default when the model offers it', () => {
+    assert.equal(claudeBudget('high')?.default, 'high');
+    assert.equal(claudeBudget('low')?.default, 'low');
+  });
+
+  test('omits `default` when the configured level is not offered by the model', () => {
+    // small output limit: only `low` (budget 1024) fits under max_tokens, so `high` is not offered
+    const p = claudeBudget('high', 4096);
+    assert.deepEqual(p?.enum, ['low']);
+    assert.equal(p?.default, undefined);
+    // and a level that is not a valid level at all
+    assert.equal(claudeBudget('turbo')?.default, undefined);
   });
 
   test('places the schema in the `navigation` group', () => {
@@ -681,7 +675,6 @@ describe('buildModelInfo skips picker schema when tier is baked into the id', ()
       'medium',
       'high',
       'max',
-      'xhigh',
     ]);
   });
 
@@ -719,7 +712,88 @@ describe('buildModelInfo skips picker schema when tier is baked into the id', ()
       'medium',
       'high',
       'max',
-      'xhigh',
     ]);
+  });
+});
+
+describe('thinking effort follows what the server publishes (thinkingRange)', () => {
+  const build = (id: string, capabilities: Record<string, unknown>) =>
+    buildModelInfo({
+      model: baseModel({ id, capabilities: { reasoning: true, ...capabilities } }),
+      defaultMaxTokens: 262144,
+      defaultMaxOutputTokens: 4096,
+      capabilities: {},
+    }).info.configurationSchema?.properties.reasoningEffort;
+
+  test('an array thinkingRange is used verbatim (server order), not the format heuristic', () => {
+    const p = build('lenec.tech/kimi-k3', { thinkingFormat: 'kimi', thinkingRange: ['low', 'high', 'max'] });
+    assert.deepEqual(p?.enum, ['low', 'high', 'max']);
+    assert.equal(p?.default, undefined);
+  });
+
+  test('minimal (openai / gemini-level) is offered and is sendable', () => {
+    const p = build('fable-x', { thinkingFormat: 'openai', thinkingRange: ['minimal', 'low', 'medium', 'high', 'xhigh'] });
+    assert.deepEqual(p?.enum, ['minimal', 'low', 'medium', 'high', 'xhigh']);
+    assert.equal(p?.default, undefined);
+  });
+
+  test('claude-adaptive publishes low|medium|high -> max/xhigh are NOT offered', () => {
+    const p = build('lenec.tech/claude-sonnet-5', { thinkingFormat: 'claude-adaptive', thinkingRange: ['low', 'medium', 'high'] });
+    assert.deepEqual(p?.enum, ['low', 'medium', 'high']);
+    assert.equal(p?.default, undefined);
+  });
+
+  test('levels the request path cannot send (none, thinking, junk) are dropped, duplicates collapsed', () => {
+    const p = build('x/model', { thinkingFormat: 'openai', thinkingRange: ['none', 'Low', 'low', 'thinking', 'high', 7] });
+    assert.deepEqual(p?.enum, ['low', 'high']);
+  });
+
+  test('a range with nothing sendable means no picker (fallback must not contradict the server)', () => {
+    assert.equal(build('x/model', { thinkingFormat: 'openai', thinkingRange: ['none', 'thinking'] }), undefined);
+  });
+
+  test('a null / empty range falls back to the per-format table', () => {
+    assert.deepEqual(build('x/model', { thinkingFormat: 'kimi', thinkingRange: null })?.enum, ['low', 'medium', 'high', 'max']);
+    assert.deepEqual(build('x/model', { thinkingFormat: 'gemini-level', thinkingRange: [] })?.enum, ['minimal', 'low', 'medium', 'high']);
+  });
+
+  test('minimax has no effort levels (9Router only toggles thinking on/off)', () => {
+    assert.equal(build('x/minimax-m3', { thinkingFormat: 'minimax' }), undefined);
+  });
+
+  test('claude-budget fallback drops levels whose budget_tokens is not below max_tokens', () => {
+    const at = (maxOutput: number) => build('x/claude-4', { thinkingFormat: 'claude-budget', maxOutput })?.enum;
+    assert.deepEqual(at(64000), ['low', 'medium', 'high', 'xhigh']);
+    assert.deepEqual(at(131072), ['low', 'medium', 'high', 'xhigh', 'max']);
+  });
+
+  test('the picker has a localisable title', () => {
+    assert.equal(build('x/model', { thinkingFormat: 'openai', thinkingRange: ['low'] })?.title, 'Thinking effort');
+  });
+});
+
+describe('tier baked into the model id hides the picker (measured on a real catalogue)', () => {
+  const hidden = (id: string) =>
+    buildModelInfo({
+      model: baseModel({ id, capabilities: { reasoning: true, thinkingFormat: 'openai', thinkingRange: ['low', 'high'] } }),
+      defaultMaxTokens: 262144,
+      defaultMaxOutputTokens: 4096,
+      capabilities: {},
+    }).info.configurationSchema === undefined;
+
+  test('none / minimal variants are tiers too', () => {
+    for (const id of ['cu/gpt-5.6-sol-none', 'cu/gpt-5.6-sol-none-fast', 'cu/gemini-3.6-flash-minimal', 'ds/deepseek-v4-pro-none']) {
+      assert.equal(hidden(id), true, id);
+    }
+  });
+
+  test('"max" in a Qwen name is a product tier, not an effort level', () => {
+    for (const id of ['lenec.tech/qwen3.7-max', 'ocg/qwen3.8-max']) { assert.equal(hidden(id), false, id); }
+  });
+
+  test('"max" as an effort tier elsewhere still hides the picker', () => {
+    for (const id of ['cu/claude-opus-5-5-max', 'cu/gpt-5.6-sol-max-fast', 'ds/deepseek-v4-pro-max']) {
+      assert.equal(hidden(id), true, id);
+    }
   });
 });

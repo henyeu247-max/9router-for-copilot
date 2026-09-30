@@ -28,7 +28,7 @@
  * the request body as `reasoning_effort`; any value outside this set is
  * treated as "not specified" and the field is omitted.
  */
-export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /**
  * `vscode.ProvideLanguageModelChatResponseOptions.modelOptions` /
@@ -85,6 +85,7 @@ export function pickReasoningEffort(sources: ReasoningEffortSources): ReasoningE
 
 /** All values accepted on the wire. Frozen for `Set.has` fast-path. */
 const REASONING_EFFORT_VALUES: ReadonlySet<string> = new Set([
+    'minimal',
     'low',
     'medium',
     'high',
@@ -94,4 +95,31 @@ const REASONING_EFFORT_VALUES: ReadonlySet<string> = new Set([
 
 function pickString(value: unknown): string | undefined {
     return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+/**
+ * Guard against a stale picker choice. VS Code stores the picker value per model id,
+ * so after the model's offered levels change (server update, our own fix) an old value
+ * can linger. A value the model no longer offers is not sent; the level the user set
+ * in settings (perModelOptions / extraModelOptions) is used instead, or nothing.
+ * Settings values are the user's explicit call and are never filtered.
+ *
+ * @param picked        what pickReasoningEffort resolved from all sources
+ * @param advertised    the `enum` the model's picker offers (undefined = no picker)
+ * @param fromSettings  the level resolved from settings sources only
+ */
+export function resolveSendableEffort(
+    picked: ReasoningEffort | undefined,
+    advertised: unknown,
+    fromSettings: ReasoningEffort | undefined
+): { effort: ReasoningEffort | undefined; dropped?: ReasoningEffort } {
+    if (
+        picked !== undefined &&
+        Array.isArray(advertised) &&
+        !advertised.includes(picked) &&
+        fromSettings !== picked
+    ) {
+        return { effort: fromSettings, dropped: picked };
+    }
+    return { effort: picked };
 }

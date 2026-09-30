@@ -24,7 +24,7 @@ import { estimatePromptTokens, estimateUsage, isEmptyUsage } from '../chat/usage
 import { buildToolNameMap, restoreToolName, rewriteHistoryToolNames, type ToolNameMap } from '../chat/toolNames';
 import { tryRepairJson } from '../chat/jsonRepair';
 import { fillMissingRequiredProperties } from '../chat/toolSchema';
-import { pickReasoningEffort } from '../chat/reasoningEffort';
+import { pickReasoningEffort, resolveSendableEffort } from '../chat/reasoningEffort';
 import {
   StreamChunk,
   StreamReporter,
@@ -262,7 +262,7 @@ export class ChatRequestHandler {
         pickNumber(discovered?.temperature) ??
         (hasTools ? config.agentTemperature : DEFAULT_TEMPERATURE);
 
-      const reasoningEffort = pickReasoningEffort({
+      let reasoningEffort = pickReasoningEffort({
         // The "Thinking Effort" picker (microsoft/vscode#315181) writes
         // the user's choice into `modelOptions.reasoningEffort` on the
         // chat request. The same field is sometimes exposed as
@@ -277,6 +277,23 @@ export class ChatRequestHandler {
         perModelOptions: perModel,
         extraModelOptions: config.extraModelOptions,
       });
+
+      // A stale picker choice (level the model no longer offers) is not sent.
+      const advertisedEfforts = (
+        model as { configurationSchema?: { properties?: Record<string, { enum?: unknown }> } }
+      ).configurationSchema?.properties?.reasoningEffort?.enum;
+      const guarded = resolveSendableEffort(
+        reasoningEffort,
+        advertisedEfforts,
+        pickReasoningEffort({ perModelOptions: perModel, extraModelOptions: config.extraModelOptions })
+      );
+      if (guarded.dropped) {
+        log(
+          `Reasoning effort "${guarded.dropped}" is not offered for ${model.id} (${(advertisedEfforts as string[]).join(', ')}); ` +
+            (guarded.effort ? `using "${guarded.effort}" from settings.` : 'not sending it.')
+        );
+      }
+      reasoningEffort = guarded.effort;
 
       let requestOptions = buildChatRequest({
         model: model.id,

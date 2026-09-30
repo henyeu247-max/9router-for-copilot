@@ -69,6 +69,8 @@ declare module 'vscode' {
     readonly enum?: readonly (string | number)[];
     readonly default?: string | number | boolean;
     readonly description?: string;
+    /** Label of the sub-menu VS Code builds from this property (defaults to the humanised key). */
+    readonly title?: string;
     readonly group?: string;
   }
 

@@ -1,6 +1,6 @@
 import { test, describe } from 'vitest';
 import assert from 'node:assert/strict';
-import { pickReasoningEffort } from '../reasoningEffort';
+import { pickReasoningEffort, resolveSendableEffort } from '../reasoningEffort';
 
 describe('pickReasoningEffort', () => {
     test('returns undefined when no source provides a value', () => {
@@ -197,7 +197,7 @@ describe('pickReasoningEffort', () => {
     });
 
     test('strips arbitrary strings outside the union', () => {
-        for (const value of ['minimal', 'auto', 'thinking', 'turbo', '1', '99']) {
+        for (const value of ['none', 'off', 'auto', 'thinking', 'turbo', '1', '99']) {
             assert.equal(
                 pickReasoningEffort({
                     optionsModelOptions: { reasoningEffort: value },
@@ -211,7 +211,7 @@ describe('pickReasoningEffort', () => {
     });
 
     test('accepts every value in the ReasoningEffort union', () => {
-        for (const value of ['low', 'medium', 'high', 'xhigh', 'max']) {
+        for (const value of ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']) {
             assert.equal(
                 pickReasoningEffort({
                     optionsModelOptions: { reasoningEffort: value },
@@ -221,5 +221,26 @@ describe('pickReasoningEffort', () => {
                 value
             );
         }
+    });
+});
+
+describe('resolveSendableEffort (stale picker value guard)', () => {
+    test('a level the model offers is sent unchanged', () => {
+        assert.deepEqual(resolveSendableEffort('high', ['low', 'high'], undefined), { effort: 'high' });
+    });
+    test('no picker (no advertised list) means nothing is filtered', () => {
+        assert.deepEqual(resolveSendableEffort('max', undefined, undefined), { effort: 'max' });
+    });
+    test('a stale level is dropped and reported', () => {
+        assert.deepEqual(resolveSendableEffort('xhigh', ['low', 'medium', 'high'], undefined), { effort: undefined, dropped: 'xhigh' });
+    });
+    test('a stale level falls back to the settings level', () => {
+        assert.deepEqual(resolveSendableEffort('xhigh', ['low', 'high'], 'low'), { effort: 'low', dropped: 'xhigh' });
+    });
+    test('an explicit settings level is never filtered, even if the model does not offer it', () => {
+        assert.deepEqual(resolveSendableEffort('max', ['low', 'high'], 'max'), { effort: 'max' });
+    });
+    test('nothing picked stays nothing', () => {
+        assert.deepEqual(resolveSendableEffort(undefined, ['low'], 'low'), { effort: undefined });
     });
 });
