@@ -435,3 +435,73 @@ describe('ModelCatalog thinking-effort picker follows the user settings', () => 
     assert.equal((await schemaOf(fakeConfig({ extraModelOptions: { reasoningEffort: 'medium' } })))?.default, undefined);
   });
 });
+
+describe('ModelCatalog fills missing limits from the Anthropic-style listing (CLIProxyAPI)', () => {
+  const ANTHROPIC = {
+    data: [
+      { id: 'claude-opus-5', max_input_tokens: 1000000, max_tokens: 128000 },
+      { id: 'claude-fable-5-dd-hsalf-3-inimeg', max_input_tokens: 1048576, max_tokens: 65536 },
+    ],
+  };
+  const makeWithListing = (rows: OpenAIModelsResponse, listing: () => Promise<unknown>, config?: GatewayConfig) => {
+    let listingCalls = 0;
+    const client = {
+      fetchModels: () => Promise.resolve(rows),
+      fetchAnthropicListing: () => { listingCalls++; return listing(); },
+    } as unknown as GatewayClient;
+    const catalog = new ModelCatalog({
+      client, discovery: noDiscovery(), getConfig: () => config ?? fakeConfig(), log: () => undefined, onStatusChanged: () => undefined,
+    });
+    return { catalog, calls: () => listingCalls };
+  };
+  const bareRows = (): OpenAIModelsResponse => modelsResponse({ id: 'claude-opus-5' }, { id: 'gemini-3-flash' }, { id: 'mystery' });
+
+  test('the picker gets the real window and output instead of 262144 / 4096', async () => {
+    const { catalog } = makeWithListing(bareRows(), () => Promise.resolve(ANTHROPIC));
+    const { models } = await catalog.getOrFetchModels(fakeToken());
+    const by = Object.fromEntries(models.map((m) => [m.id, m]));
+    assert.equal(by['claude-opus-5'].maxInputTokens + by['claude-opus-5'].maxOutputTokens, 1000000);
+    assert.equal(by['claude-opus-5'].maxOutputTokens, 128000);
+    assert.equal(by['gemini-3-flash'].maxInputTokens + by['gemini-3-flash'].maxOutputTokens, 1048576);
+    assert.equal(by['gemini-3-flash'].maxOutputTokens, 65536);
+    // not in the listing -> still the configured fallbacks
+    assert.equal(by['mystery'].maxInputTokens + by['mystery'].maxOutputTokens, 128000);
+    assert.equal(by['mystery'].maxOutputTokens, 4096);
+  });
+
+  test('a gateway that already reports context is never asked (zero extra requests)', async () => {
+    const rows = modelsResponse({ id: 'a', contextLen: 32768 }, { id: 'b', contextLen: 65536 });
+    const { catalog, calls } = makeWithListing(rows, () => Promise.resolve(ANTHROPIC));
+    await catalog.getOrFetchModels(fakeToken());
+    assert.equal(calls(), 0);
+  });
+
+  test('a failing or garbage listing is ignored silently and the list still loads', async () => {
+    for (const listing of [() => Promise.reject(new Error('boom')), () => Promise.resolve(undefined), () => Promise.resolve('<html>')]) {
+      const { catalog } = makeWithListing(bareRows(), listing);
+      const { models, error } = await catalog.getOrFetchModels(fakeToken());
+      assert.equal(error, undefined);
+      assert.equal(models.length, 3);
+      assert.equal(models[0].maxOutputTokens, 4096);
+    }
+  });
+
+  test('the listing is cached for a few minutes and re-asked after Refresh Models', async () => {
+    const { catalog, calls } = makeWithListing(bareRows(), () => Promise.resolve(ANTHROPIC));
+    await catalog.getOrFetchModels(fakeToken());
+    catalog.invalidateCache();
+    await catalog.getOrFetchModels(fakeToken());
+    assert.equal(calls(), 2);
+    // fetchLast cache (1s) short-circuits before doFetchModels: no extra call
+    await catalog.getOrFetchModels(fakeToken());
+    assert.equal(calls(), 2);
+  });
+
+  test('the user modelContextWindows override still wins over the listing', async () => {
+    const config = fakeConfig({ modelContextWindows: { 'claude-opus-5': 200000 } });
+    const { catalog } = makeWithListing(bareRows(), () => Promise.resolve(ANTHROPIC), config);
+    const { models } = await catalog.getOrFetchModels(fakeToken());
+    const opus = models.find((m) => m.id === 'claude-opus-5')!;
+    assert.equal(opus.maxInputTokens + opus.maxOutputTokens, 200000);
+  });
+});

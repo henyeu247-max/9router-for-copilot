@@ -1,5 +1,6 @@
 import type { CancellationToken, LanguageModelChatInformation } from 'vscode';
 import { GatewayClient } from '../api/client';
+import type { OpenAIModel } from '../api/types';
 import { GatewayConfig } from '../config/gatewayConfig';
 import { DiscoveredModelInfo, ModelDiscovery } from '../discovery/types';
 import { TOKEN_CONSTANTS } from '../chat/tokenBudget';
@@ -9,6 +10,7 @@ import { parseOutputLimitError } from '../chat/outputLimitError';
 import { dedupeModels } from '../models/modelDisplay';
 import { buildModelInfo } from '../models/modelInfoBuilder';
 import { pickReasoningEffort } from '../chat/reasoningEffort';
+import { applyListingLimits, needsListingLimits, parseAnthropicListing, type ListingLimits } from '../models/anthropicListing';
 import { resolvePerModelOptions } from '../config/perModelOptions';
 
 interface ModelCatalogDeps {
@@ -58,6 +60,8 @@ export class ModelCatalog {
    * on config reload since the server (or its presets) may have changed.
    */
   private readonly learnedContextByModelId: Map<string, number> = new Map();
+  /** Limits read from the Anthropic-style listing, kept for a few minutes so refreshes do not re-ask. */
+  private listingLimits: { at: number; limits: ReadonlyMap<string, ListingLimits> } | undefined;
   /** Output limits learned from "max_tokens too large" errors (real upstream ceilings). */
   private readonly learnedOutputByModelId: Map<string, number> = new Map();
   /**
@@ -119,12 +123,44 @@ export class ModelCatalog {
    */
   public invalidateCache(): void {
     this.fetchLast = undefined;
+    this.listingLimits = undefined;
   }
 
   /** Called on config reload — a different server's learned sizes no longer apply. */
   public clearLearnedContexts(): void {
     this.learnedContextByModelId.clear();
     this.learnedOutputByModelId.clear();
+    this.listingLimits = undefined;
+  }
+
+  /**
+   * Gateways that list models as bare `{id, object, owned_by}` (CLIProxyAPI) still know each model's
+   * context window and output limit, but only tell it in the Anthropic-style answer. Ask for that
+   * ONLY when some model has no context window; gateways that already report it (9Router) cost no
+   * extra request. Values the server did report are never replaced.
+   */
+  private async withListingLimits(
+    models: OpenAIModel[],
+    token: CancellationToken
+  ): Promise<OpenAIModel[]> {
+    const client = this.deps.client as { fetchAnthropicListing?: (t?: CancellationToken) => Promise<unknown> };
+    if (typeof client.fetchAnthropicListing !== 'function' || !needsListingLimits(models)) {
+      return models;
+    }
+    const ttlMs = 5 * 60 * 1000;
+    if (!this.listingLimits || Date.now() - this.listingLimits.at > ttlMs) {
+      try {
+        const limits = parseAnthropicListing(await client.fetchAnthropicListing(token));
+        this.listingLimits = { at: Date.now(), limits };
+      } catch {
+        return models;
+      }
+    }
+    const { models: enriched, filled } = applyListingLimits(models, this.listingLimits.limits);
+    if (filled > 0) {
+      this.deps.log(`Filled context/output limits of ${filled} of ${models.length} models from the gateway's Anthropic-style model list.`);
+    }
+    return enriched;
   }
 
   /**
@@ -190,11 +226,12 @@ export class ModelCatalog {
       return [];
     }
 
-    const uniqueModels = applyModelFilter(
+    const filtered = applyModelFilter(
       selectChatModels(dedupeModels(response.data)),
       this.deps.getConfig().modelFilter,
       (f) => log(`modelFilter '${f}' matches no model; ignoring it so the picker is not empty`)
     );
+    const uniqueModels = await this.withListingLimits(filtered, token);
     if (uniqueModels.length !== response.data.length) {
       log(
         `Server returned ${response.data.length} models, ${uniqueModels.length} unique after dedupe`

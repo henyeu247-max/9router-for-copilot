@@ -1,3 +1,4 @@
+import { ANTHROPIC_VERSION_HEADER } from '../models/anthropicListing';
 import * as vscode from 'vscode';
 import { fetchWithRateLimitRetry } from './rateLimitRetry';
 import { buildDescribeRequest, extractCompletionText } from '../chat/visionProxy';
@@ -240,6 +241,32 @@ export class GatewayClient {
 
     const message = lastError ? describeFetchError(lastError) : 'unknown error';
     throw new Error(`Failed to connect to inference server at ${base}: ${message}`);
+  }
+
+  /**
+   * The same models endpoint, asked in Anthropic style (`anthropic-version` header). Gateways such
+   * as CLIProxyAPI answer that with `max_input_tokens` / `max_tokens` per model, which their OpenAI
+   * answer lacks. Best effort: any failure (or a non-JSON body) yields `undefined`.
+   */
+  public async fetchAnthropicListing(cancellationToken?: vscode.CancellationToken): Promise<unknown | undefined> {
+    const base = normalizeBaseUrl(this.config.serverUrl);
+    for (const url of [`${base}/v1/models`, `${base}/models`]) {
+      try {
+        const response = await this.fetchWithTimeout(url, {
+          method: 'GET',
+          headers: { ...this.getHeaders(), 'anthropic-version': ANTHROPIC_VERSION_HEADER },
+        }, cancellationToken);
+        if (response.ok) {
+          return await response.json();
+        }
+        if (response.status !== 404) {
+          return undefined;
+        }
+      } catch {
+        return undefined;
+      }
+    }
+    return undefined;
   }
 
   /**
