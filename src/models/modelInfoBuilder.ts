@@ -241,7 +241,11 @@ export function resolveReasoningEffortSchema(
   // noise — the tier is already fixed by the model entry, and the
   // upstream ignores any `reasoning_effort` we'd forward. Skip the
   // schema entirely before any format-based enum logic runs.
-  if (hasReasoningTierInName(model.id)) {
+  // Exception: a level list the gateway itself gave for THIS model (capabilities.reasoningEffort)
+  // is real evidence that the effort is adjustable, so it outranks the id heuristic (measured on
+  // CLIProxyAPI: gemini-3.8-flash-high accepts low, medium and high).
+  const gatewayList = Array.isArray(model.capabilities.reasoningEffort) && model.capabilities.reasoningEffort.length > 0;
+  if (!gatewayList && hasReasoningTierInName(model.id)) {
     return undefined;
   }
   // Server-advertised list wins verbatim. Filters out empty strings and

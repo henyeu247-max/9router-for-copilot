@@ -1,3 +1,4 @@
+import { PROBE_LEVEL, classifyProbe, type ProbeOutcome } from '../models/thinkingProbe';
 import { ANTHROPIC_VERSION_HEADER } from '../models/anthropicListing';
 import * as vscode from 'vscode';
 import { fetchWithRateLimitRetry } from './rateLimitRetry';
@@ -267,6 +268,33 @@ export class GatewayClient {
       }
     }
     return undefined;
+  }
+
+  /**
+   * Ask the gateway which thinking levels `modelId` accepts, by sending a level no model can accept.
+   * A gateway that validates levels answers 400 with its own list (see models/thinkingProbe.ts);
+   * `max_tokens: 1` and a one-character prompt keep the rare request that is accepted nearly free.
+   * Never throws.
+   */
+  public async probeReasoningLevels(modelId: string, cancellationToken?: vscode.CancellationToken): Promise<ProbeOutcome> {
+    const url = `${normalizeBaseUrl(this.config.serverUrl)}/v1/chat/completions`;
+    try {
+      const response = await this.fetchWithTimeout(url, {
+        method: 'POST',
+        headers: { ...this.getHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: modelId,
+          max_tokens: 1,
+          stream: false,
+          reasoning_effort: PROBE_LEVEL,
+          messages: [{ role: 'user', content: 'x' }],
+        }),
+      }, cancellationToken, 15_000);
+      const body = await response.text().catch(() => '');
+      return classifyProbe(response.status, body);
+    } catch {
+      return classifyProbe(undefined, '');
+    }
   }
 
   /**

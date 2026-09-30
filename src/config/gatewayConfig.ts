@@ -40,6 +40,8 @@ export interface GatewayConfig {
    * suggestions (issue #44, microsoft/vscode#318545).
    */
   enableInlineCompletion: boolean;
+  /** Ask CLIProxyAPI-style gateways which thinking levels each model accepts (see models/thinkingProbe.ts). */
+  probeThinkingLevels: boolean;
   /**
    * Profile ID to route inline completions to. Empty string or undefined means "first enabled profile".
    */

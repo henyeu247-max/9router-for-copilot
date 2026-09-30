@@ -48,5 +48,6 @@
   "cfg.debugMode.off": "No extra logging (default). One summary line per request.",
   "cfg.debugMode.metadata": "Also log every tool and message (names, sizes, roles) to the Output log.",
   "cfg.debugMode.verbose": "Also write full request dumps (API key redacted) to the extension storage folder.",
-  "cfg.verboseLogging.deprecated": "Deprecated - use \"9router-for-github-copilot.debugMode\" instead."
+  "cfg.verboseLogging.deprecated": "Deprecated - use \"9router-for-github-copilot.debugMode\" instead.",
+  "cfg.probeThinkingLevels": "For CLIProxyAPI-style gateways, which publish no thinking levels in their model list: ask the gateway once per model which levels it accepts (one request with an invalid level and max_tokens 1; a few models answer it as a real 1-token request) and show them in the Thinking effort picker. Never used with other gateways. Turn off to avoid these requests."
 }

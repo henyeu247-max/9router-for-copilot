@@ -10,7 +10,8 @@ import { parseOutputLimitError } from '../chat/outputLimitError';
 import { dedupeModels } from '../models/modelDisplay';
 import { buildModelInfo } from '../models/modelInfoBuilder';
 import { pickReasoningEffort } from '../chat/reasoningEffort';
-import { applyListingLimits, needsListingLimits, parseAnthropicListing, type ListingLimits } from '../models/anthropicListing';
+import { applyListingLimits, hasCloakedIds, needsListingLimits, parseAnthropicListing, type ListingLimits } from '../models/anthropicListing';
+import { applyProbedLevels, type ProbeOutcome } from '../models/thinkingProbe';
 import { resolvePerModelOptions } from '../config/perModelOptions';
 
 interface ModelCatalogDeps {
@@ -25,6 +26,10 @@ interface ModelCatalogDeps {
   log: (message: string) => void;
   /** Fired when connection state / cached data changes (status dialog refresh). */
   onStatusChanged: () => void;
+  /** Ask VS Code to re-read the model list (after thinking levels were probed in the background). */
+  requestRefresh?: () => void;
+  /** Where thinking-level answers survive a restart (per gateway). Optional. */
+  probeStore?: { get: () => unknown; set: (value: unknown) => void };
 }
 
 /**
@@ -61,7 +66,13 @@ export class ModelCatalog {
    */
   private readonly learnedContextByModelId: Map<string, number> = new Map();
   /** Limits read from the Anthropic-style listing, kept for a few minutes so refreshes do not re-ask. */
-  private listingLimits: { at: number; limits: ReadonlyMap<string, ListingLimits> } | undefined;
+  private listingLimits: { at: number; limits: ReadonlyMap<string, ListingLimits>; cliProxy: boolean } | undefined;
+  /** Thinking levels the gateway itself reported per model (see models/thinkingProbe.ts). */
+  private readonly probeCache: Map<string, { at: number; outcome: ProbeOutcome }> = new Map();
+  private probeRunning = false;
+  private probeStoreLoaded = false;
+  /** Bumped whenever cached lists become stale, so a fetch that was already running cannot re-cache its old result. */
+  private generation = 0;
   /** Output limits learned from "max_tokens too large" errors (real upstream ceilings). */
   private readonly learnedOutputByModelId: Map<string, number> = new Map();
   /**
@@ -122,6 +133,7 @@ export class ModelCatalog {
    * the server. Called from the `Refresh Models` command.
    */
   public invalidateCache(): void {
+    this.generation++;
     this.fetchLast = undefined;
     this.listingLimits = undefined;
   }
@@ -131,6 +143,8 @@ export class ModelCatalog {
     this.learnedContextByModelId.clear();
     this.learnedOutputByModelId.clear();
     this.listingLimits = undefined;
+    this.probeCache.clear();
+    this.probeStoreLoaded = false; // reloaded from the store for whatever gateway is configured now
   }
 
   /**
@@ -150,8 +164,8 @@ export class ModelCatalog {
     const ttlMs = 5 * 60 * 1000;
     if (!this.listingLimits || Date.now() - this.listingLimits.at > ttlMs) {
       try {
-        const limits = parseAnthropicListing(await client.fetchAnthropicListing(token));
-        this.listingLimits = { at: Date.now(), limits };
+        const payload = await client.fetchAnthropicListing(token);
+        this.listingLimits = { at: Date.now(), limits: parseAnthropicListing(payload), cliProxy: hasCloakedIds(payload) };
       } catch {
         return models;
       }
@@ -183,13 +197,14 @@ export class ModelCatalog {
       }
     }
 
+    const startedAt = this.generation;
     const inFlight = this.doFetchModels(token);
     this.fetchInFlight = inFlight;
     try {
       const result = await inFlight;
       // Don't poison the cache with cancelled-empty results — the next caller
       // should re-probe instead of seeing a stale empty list.
-      if (!token.isCancellationRequested) {
+      if (!token.isCancellationRequested && startedAt === this.generation) {
         this.fetchLast = { at: Date.now(), result };
         this.lastSuccessfulFetchAt = Date.now();
         this.lastConnectionError = undefined;
@@ -231,7 +246,7 @@ export class ModelCatalog {
       this.deps.getConfig().modelFilter,
       (f) => log(`modelFilter '${f}' matches no model; ignoring it so the picker is not empty`)
     );
-    const uniqueModels = await this.withListingLimits(filtered, token);
+    const uniqueModels = this.withProbedLevels(await this.withListingLimits(filtered, token));
     if (uniqueModels.length !== response.data.length) {
       log(
         `Server returned ${response.data.length} models, ${uniqueModels.length} unique after dedupe`
@@ -370,6 +385,118 @@ export class ModelCatalog {
       return learned;
     }
     return context;
+  }
+
+  /**
+   * CLIProxyAPI publishes no thinking levels in any model list, but tells them when a request carries
+   * a level the model does not accept (models/thinkingProbe.ts). Applies what was learned and, in the
+   * background, probes the models still unknown, then asks VS Code to re-read the list.
+   * Only for CLIProxyAPI (recognised by its cloaked ids in the Anthropic-style listing) and only for
+   * rows without any `capabilities`: a probe sent to Ollama could load every model into memory.
+   */
+  private withProbedLevels(models: OpenAIModel[]): OpenAIModel[] {
+    if (!this.listingLimits?.cliProxy || !this.deps.getConfig().probeThinkingLevels) {
+      return models;
+    }
+    this.loadProbeStore();
+    const ttlLevels = 24 * 60 * 60 * 1000;
+    const ttlError = 10 * 60 * 1000;
+    const now = Date.now();
+    const fresh = (id: string): { at: number; outcome: ProbeOutcome } | undefined => {
+      const e = this.probeCache.get(id);
+      return e && now - e.at < (e.outcome.kind === 'error' ? ttlError : ttlLevels) ? e : undefined;
+    };
+    const known = new Map<string, readonly string[]>();
+    const pending: string[] = [];
+    for (const m of models) {
+      if (m.capabilities !== undefined) {
+        continue;
+      }
+      const e = fresh(m.id);
+      if (!e) {
+        pending.push(m.id);
+      } else if (e.outcome.kind === 'levels') {
+        known.set(m.id, e.outcome.levels);
+      }
+    }
+    if (pending.length > 0 && !this.probeRunning) {
+      this.probeRunning = true;
+      void this.runProbes(pending);
+    }
+    return known.size > 0 ? applyProbedLevels(models, known) : models;
+  }
+
+  /** Answers earlier sessions already got from this gateway (errors are never persisted). */
+  private loadProbeStore(): void {
+    if (this.probeStoreLoaded) {
+      return;
+    }
+    this.probeStoreLoaded = true;
+    try {
+      const raw = this.deps.probeStore?.get() as { v?: unknown; entries?: unknown } | undefined;
+      if (raw?.v !== 1 || typeof raw.entries !== 'object' || raw.entries === null) {
+        return;
+      }
+      for (const [id, e] of Object.entries(raw.entries as Record<string, { at?: unknown; outcome?: { kind?: unknown; levels?: unknown } }>)) {
+        const at = typeof e?.at === 'number' ? e.at : NaN;
+        if (!Number.isFinite(at) || !e.outcome) {
+          continue;
+        }
+        if (e.outcome.kind === 'none') {
+          this.probeCache.set(id, { at, outcome: { kind: 'none' } });
+        } else if (e.outcome.kind === 'levels' && Array.isArray(e.outcome.levels) && e.outcome.levels.every((l) => typeof l === 'string') && e.outcome.levels.length > 0) {
+          this.probeCache.set(id, { at, outcome: { kind: 'levels', levels: e.outcome.levels as string[] } });
+        }
+      }
+    } catch {
+      /* a damaged store just means we ask again */
+    }
+  }
+
+  private saveProbeStore(): void {
+    try {
+      const entries: Record<string, { at: number; outcome: ProbeOutcome }> = {};
+      for (const [id, e] of this.probeCache) {
+        if (e.outcome.kind !== 'error') {
+          entries[id] = e;
+        }
+      }
+      this.deps.probeStore?.set({ v: 1, entries });
+    } catch {
+      /* best effort */
+    }
+  }
+
+  private async runProbes(ids: readonly string[]): Promise<void> {
+    const client = this.deps.client as { probeReasoningLevels?: (id: string) => Promise<ProbeOutcome> };
+    let withLevels = 0;
+    let without = 0;
+    let failed = 0;
+    try {
+      if (typeof client.probeReasoningLevels !== 'function') {
+        return;
+      }
+      let next = 0;
+      await Promise.all(
+        Array.from({ length: Math.min(4, ids.length) }, async () => {
+          while (next < ids.length) {
+            const id = ids[next++];
+            const outcome = await client.probeReasoningLevels!(id);
+            this.probeCache.set(id, { at: Date.now(), outcome });
+            if (outcome.kind === 'levels') { withLevels++; } else if (outcome.kind === 'none') { without++; } else { failed++; }
+          }
+        })
+      );
+    } finally {
+      this.probeRunning = false;
+    }
+    this.saveProbeStore();
+    this.deps.log(`Thinking levels asked from the gateway for ${ids.length} models: ${withLevels} with their own list, ${without} without level support, ${failed} unanswered.`);
+    if (withLevels > 0) {
+      this.generation++;
+      this.fetchLast = undefined;
+      this.deps.requestRefresh?.();
+    }
   }
 
   /** Real output ceiling learned from an upstream error, or undefined. */

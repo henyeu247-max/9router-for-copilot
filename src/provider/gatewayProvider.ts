@@ -77,6 +77,7 @@ export class GatewayProvider
   };
 
   private readonly dumpDir: string;
+  private readonly globalState: vscode.Memento;
 
   /** Where request dumps are written (extension global storage). */
   public getDumpDir(): string {
@@ -85,6 +86,7 @@ export class GatewayProvider
 
   constructor(context: vscode.ExtensionContext) {
     this.dumpDir = `${context.globalStorageUri.fsPath}/request-dumps`;
+    this.globalState = context.globalState;
     this.outputChannel = vscode.window.createOutputChannel('9Router');
     const log = (msg: string): void => this.outputChannel.appendLine(msg);
 
@@ -216,6 +218,12 @@ export class GatewayProvider
           onCompleted: (modelId, modelName, usage, p) =>
             this.recordCompletedRequest(modelId, modelName, usage, p.name),
           onStatusChanged: () => this._onDidChangeStatusSnapshot.fire(),
+          requestRefresh: () => this.refreshModels(),
+          // Thinking-level answers per gateway URL (no secrets: the URL and level names only).
+          probeStore: (serverUrl) => {
+            const key = `9router-for-github-copilot.thinkingLevels.v1|${serverUrl.trim().replace(/\/+$/, '').toLowerCase()}`;
+            return { get: () => this.globalState.get(key), set: (value) => void this.globalState.update(key, value) };
+          },
         });
         this.runtimes.set(profile.id, runtime);
       }

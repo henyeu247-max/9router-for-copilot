@@ -30,6 +30,7 @@ function baseConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     perModelOptions: {},
     modelContextWindows: {},
     enableInlineCompletion: false,
+    probeThinkingLevels: true,
     inlineCompletionModel: '',
     inlineCompletionMaxTokens: 256,
     inlineCompletionDebounce: 300,

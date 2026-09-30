@@ -70,6 +70,7 @@ export class ConfigService {
       perModelOptions: config.get<Record<string, unknown>>('perModelOptions', {}) ?? {},
       modelContextWindows: config.get<Record<string, number>>('modelContextWindows', {}) ?? {},
       enableInlineCompletion: config.get<boolean>('enableInlineCompletion', false),
+      probeThinkingLevels: config.get<boolean>('probeThinkingLevels', true),
       inlineCompletionProvider: config.get<string>('inlineCompletionProvider', ''),
       inlineCompletionModel: config.get<string>('inlineCompletionModel', ''),
       inlineCompletionMaxTokens: config.get<number>('inlineCompletionMaxTokens', 256),

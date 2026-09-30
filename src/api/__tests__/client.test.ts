@@ -206,6 +206,7 @@ describe('streamChatCompletion reasoning field handling (issue #59)', () => {
     perModelOptions: {},
     modelContextWindows: {},
     enableInlineCompletion: false,
+    probeThinkingLevels: true,
     inlineCompletionModel: '',
     inlineCompletionMaxTokens: 128,
     inlineCompletionDebounce: 300,

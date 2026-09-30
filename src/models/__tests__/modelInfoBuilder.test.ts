@@ -878,3 +878,22 @@ describe('API first, built-in values only when the API is silent (context / outp
     assert.equal(build({ context_length: 200000, max_completion_tokens: 99999 }).info.maxOutputTokens, 99999);
   });
 });
+
+describe('the id-tier heuristic never overrides a level list the gateway gave for that model', () => {
+  const build = (id: string, capabilities: Record<string, unknown>) =>
+    buildModelInfo({
+      model: baseModel({ id, capabilities: { reasoning: true, ...capabilities } }),
+      defaultMaxTokens: 262144,
+      defaultMaxOutputTokens: 4096,
+      capabilities: {},
+    }).info.configurationSchema?.properties.reasoningEffort;
+
+  test('explicit list (CLIProxyAPI probe): picker shown although the id ends in a tier word', () => {
+    assert.deepEqual(build('gemini-3.8-flash-high', { reasoningEffort: ['low', 'medium', 'high'] })?.enum, ['low', 'medium', 'high']);
+    assert.deepEqual(build('gpt-oss-120b-medium', { reasoningEffort: ['low', 'high'] })?.enum, ['low', 'high']);
+  });
+
+  test('9Router per-format range (not per-model evidence): the heuristic still hides the picker', () => {
+    assert.equal(build('cu/claude-opus-5-5-high', { thinkingFormat: 'claude-adaptive', thinkingRange: ['low', 'medium', 'high'] }), undefined);
+  });
+});

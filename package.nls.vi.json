@@ -48,5 +48,6 @@
   "cfg.debugMode.off": "Không ghi thêm log (mặc định). Mỗi request một dòng tóm tắt.",
   "cfg.debugMode.metadata": "Ghi thêm từng tool và từng message (tên, kích thước, vai trò) vào Output log.",
   "cfg.debugMode.verbose": "Ghi thêm toàn bộ request dump (đã che khóa API) vào thư mục lưu trữ của tiện ích.",
-  "cfg.verboseLogging.deprecated": "Đã lỗi thời - hãy dùng \"9router-for-github-copilot.debugMode\"."
+  "cfg.verboseLogging.deprecated": "Đã lỗi thời - hãy dùng \"9router-for-github-copilot.debugMode\".",
+  "cfg.probeThinkingLevels": "Với gateway kiểu CLIProxyAPI (không công bố mức thinking trong danh sách model): hỏi gateway một lần cho mỗi model xem nó nhận những mức nào (một request với mức không hợp lệ và max_tokens 1; vài model sẽ xử lý nó như request thật 1 token) rồi hiện trong bộ chọn Thinking effort. Không bao giờ dùng với gateway khác. Tắt để không gửi các request này."
 }

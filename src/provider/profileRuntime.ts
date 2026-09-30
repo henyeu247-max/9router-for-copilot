@@ -25,6 +25,10 @@ export interface ProfileRuntimeDeps {
   onRequestState: (event: RequestStateEvent) => void;
   onCompleted: (modelId: string, modelName: string, usage: TokenUsage | undefined, profile: Profile) => void;
   onStatusChanged: () => void;
+  /** Ask VS Code to re-read the model list (e.g. after thinking levels were probed). */
+  requestRefresh: () => void;
+  /** Persistent per-gateway store for thinking-level answers (keyed by the gateway URL). */
+  probeStore?: (serverUrl: string) => { get: () => unknown; set: (value: unknown) => void };
 }
 
 export class ProfileRuntime {
@@ -51,6 +55,15 @@ export class ProfileRuntime {
       getConfig: () => this.currentConfig,
       log,
       onStatusChanged: () => this.deps.onStatusChanged(),
+      requestRefresh: () => this.deps.requestRefresh(),
+      ...(this.deps.probeStore
+        ? {
+            probeStore: {
+              get: () => this.deps.probeStore!(this.currentConfig.serverUrl).get(),
+              set: (value: unknown) => this.deps.probeStore!(this.currentConfig.serverUrl).set(value),
+            },
+          }
+        : {}),
     });
     this.chatHandler = new ChatRequestHandler({
       getDumpDir: () => this.deps.getDumpDir(),

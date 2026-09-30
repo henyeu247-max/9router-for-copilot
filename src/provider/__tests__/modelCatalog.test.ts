@@ -36,6 +36,7 @@ function fakeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     perModelOptions: {},
     modelContextWindows: {},
     enableInlineCompletion: false,
+    probeThinkingLevels: true,
     inlineCompletionModel: '',
     inlineCompletionMaxTokens: 256,
     inlineCompletionDebounce: 300,
@@ -503,5 +504,161 @@ describe('ModelCatalog fills missing limits from the Anthropic-style listing (CL
     const { models } = await catalog.getOrFetchModels(fakeToken());
     const opus = models.find((m) => m.id === 'claude-opus-5')!;
     assert.equal(opus.maxInputTokens + opus.maxOutputTokens, 200000);
+  });
+});
+
+describe('ModelCatalog asks CLIProxyAPI which thinking levels each model accepts', () => {
+  const CLOAKED = { data: [{ id: 'claude-opus-5', max_input_tokens: 1000000, max_tokens: 128000 }, { id: 'claude-fable-5-dd-hsalf-3-inimeg', max_input_tokens: 1048576, max_tokens: 65536 }] };
+  const PLAIN = { data: [{ id: 'claude-opus-5', max_input_tokens: 1000000, max_tokens: 128000 }] }; // Anthropic-style, but no cloaked ids
+  const rows = () => modelsResponse({ id: 'claude-opus-5' }, { id: 'gemini-3-flash' }, { id: 'gemini-3.8-flash-high' }, { id: 'no-support' });
+  const answers: Record<string, unknown> = {
+    'claude-opus-5': { kind: 'levels', levels: ['low', 'medium', 'high', 'xhigh', 'max'] },
+    'gemini-3-flash': { kind: 'levels', levels: ['minimal', 'low', 'medium', 'high'] },
+    'gemini-3.8-flash-high': { kind: 'levels', levels: ['low', 'medium', 'high'] },
+    'no-support': { kind: 'none' },
+  };
+  function make(opts: { listing: unknown; config?: GatewayConfig; rows?: OpenAIModelsResponse; probe?: (id: string) => Promise<unknown> }) {
+    const probed: string[] = [];
+    let refreshes = 0;
+    const client = {
+      fetchModels: () => Promise.resolve(opts.rows ?? rows()),
+      fetchAnthropicListing: () => Promise.resolve(opts.listing),
+      probeReasoningLevels: (id: string) => { probed.push(id); return opts.probe ? opts.probe(id) : Promise.resolve(answers[id] ?? { kind: 'error' }); },
+    } as unknown as GatewayClient;
+    const catalog = new ModelCatalog({
+      client, discovery: noDiscovery(), getConfig: () => opts.config ?? fakeConfig(), log: () => undefined, onStatusChanged: () => undefined, requestRefresh: () => { refreshes++; },
+    });
+    return { catalog, probed, refreshes: () => refreshes };
+  }
+  const settle = () => new Promise((r) => setTimeout(r, 30));
+  const enumOf = (m: LanguageModelChatInformation) =>
+    (m as unknown as { configurationSchema?: { properties: Record<string, { enum: string[] }> } }).configurationSchema?.properties.reasoningEffort?.enum;
+
+  test('probes in the background, then a refresh returns pickers with EXACTLY the gateway lists (tier-in-id models included)', async () => {
+    const h = make({ listing: CLOAKED });
+    const first = await h.catalog.getOrFetchModels(fakeToken());
+    assert.ok(first.models.every((m) => enumOf(m) === undefined), 'first list is not delayed by probing');
+    await settle();
+    assert.equal(h.refreshes(), 1);
+    const second = await h.catalog.getOrFetchModels(fakeToken());
+    const by = Object.fromEntries(second.models.map((m) => [m.id, enumOf(m)]));
+    assert.deepEqual(by['claude-opus-5'], ['low', 'medium', 'high', 'xhigh', 'max']);
+    assert.deepEqual(by['gemini-3-flash'], ['minimal', 'low', 'medium', 'high']);
+    assert.deepEqual(by['gemini-3.8-flash-high'], ['low', 'medium', 'high'], 'the gateway list beats the "-high in the id" heuristic');
+    assert.equal(by['no-support'], undefined);
+  });
+
+  test('each model is asked once; a later fetch neither re-probes nor refreshes again', async () => {
+    const h = make({ listing: CLOAKED });
+    await h.catalog.getOrFetchModels(fakeToken());
+    await settle();
+    h.catalog.invalidateCache();
+    await h.catalog.getOrFetchModels(fakeToken());
+    await settle();
+    assert.equal(h.probed.length, 4);
+    assert.equal(h.refreshes(), 1);
+  });
+
+  test('NEVER probes a gateway that is not CLIProxyAPI (no cloaked ids), e.g. Ollama / vLLM / OpenRouter', async () => {
+    for (const listing of [PLAIN, undefined, 'garbage']) {
+      const h = make({ listing });
+      await h.catalog.getOrFetchModels(fakeToken());
+      await settle();
+      assert.equal(h.probed.length, 0);
+      assert.equal(h.refreshes(), 0);
+    }
+  });
+
+  test('the setting turns it off completely', async () => {
+    const h = make({ listing: CLOAKED, config: fakeConfig({ probeThinkingLevels: false }) });
+    await h.catalog.getOrFetchModels(fakeToken());
+    await settle();
+    assert.equal(h.probed.length, 0);
+  });
+
+  test('rows that already carry capabilities are never probed', async () => {
+    const r = modelsResponse({ id: 'a' }, { id: 'b' });
+    r.data[0].capabilities = { reasoning: true, thinkingFormat: 'openai' };
+    const h = make({ listing: CLOAKED, rows: r });
+    await h.catalog.getOrFetchModels(fakeToken());
+    await settle();
+    assert.deepEqual(h.probed, ['b']);
+  });
+
+  test('failed probes teach nothing, do not refresh, and do not break the list', async () => {
+    const h = make({ listing: CLOAKED, probe: () => Promise.resolve({ kind: 'error' }) });
+    const { models, error } = await h.catalog.getOrFetchModels(fakeToken());
+    await settle();
+    assert.equal(error, undefined);
+    assert.equal(models.length, 4);
+    assert.equal(h.refreshes(), 0);
+    h.catalog.invalidateCache();
+    const again = await h.catalog.getOrFetchModels(fakeToken());
+    assert.ok(again.models.every((m) => enumOf(m) === undefined));
+    assert.equal(h.probed.length, 4, 'an error is remembered for a while instead of hammering the gateway');
+  });
+
+  test('a probe that throws is contained', async () => {
+    const h = make({ listing: CLOAKED, probe: () => Promise.reject(new Error('boom')) });
+    await h.catalog.getOrFetchModels(fakeToken());
+    await settle();
+    const { models } = await h.catalog.getOrFetchModels(fakeToken());
+    assert.equal(models.length, 4);
+  });
+});
+
+describe('thinking-level answers survive a restart (persistent per-gateway store)', () => {
+  const LISTING = { data: [{ id: 'claude-opus-5', max_input_tokens: 1000000, max_tokens: 128000 }, { id: 'claude-fable-5-dd-hsalf-3-inimeg', max_input_tokens: 1048576, max_tokens: 65536 }] };
+  const ANSWERS: Record<string, unknown> = { 'claude-opus-5': { kind: 'levels', levels: ['low', 'high', 'max'] }, 'gemini-3-flash': { kind: 'none' } };
+  const enumOf = (m: LanguageModelChatInformation) =>
+    (m as unknown as { configurationSchema?: { properties: Record<string, { enum: string[] }> } }).configurationSchema?.properties.reasoningEffort?.enum;
+  const settle = () => new Promise((r) => setTimeout(r, 30));
+  function session(store: { value: unknown }, probe: (id: string) => Promise<unknown>) {
+    const probed: string[] = [];
+    const client = {
+      fetchModels: () => Promise.resolve(modelsResponse({ id: 'claude-opus-5' }, { id: 'gemini-3-flash' })),
+      fetchAnthropicListing: () => Promise.resolve(LISTING),
+      probeReasoningLevels: (id: string) => { probed.push(id); return probe(id); },
+    } as unknown as GatewayClient;
+    const catalog = new ModelCatalog({
+      client, discovery: noDiscovery(), getConfig: () => fakeConfig(), log: () => undefined, onStatusChanged: () => undefined,
+      probeStore: { get: () => store.value, set: (v) => { store.value = JSON.parse(JSON.stringify(v)); } },
+    });
+    return { catalog, probed };
+  }
+
+  test('a second session shows the pickers on its FIRST list and sends no probe at all', async () => {
+    const store = { value: undefined as unknown };
+    const a = session(store, (id) => Promise.resolve(ANSWERS[id]));
+    await a.catalog.getOrFetchModels(fakeToken());
+    await settle();
+    assert.equal(a.probed.length, 2);
+    const b = session(store, () => Promise.reject(new Error('must not be asked')));
+    const { models } = await b.catalog.getOrFetchModels(fakeToken());
+    await settle();
+    assert.equal(b.probed.length, 0);
+    assert.deepEqual(enumOf(models.find((m) => m.id === 'claude-opus-5')!), ['low', 'high', 'max']);
+    assert.equal(enumOf(models.find((m) => m.id === 'gemini-3-flash')!), undefined);
+  });
+
+  test('errors are never persisted (they are retried next session)', async () => {
+    const store = { value: undefined as unknown };
+    const a = session(store, () => Promise.resolve({ kind: 'error' }));
+    await a.catalog.getOrFetchModels(fakeToken());
+    await settle();
+    assert.deepEqual((store.value as { entries: object }).entries, {});
+    const b = session(store, (id) => Promise.resolve(ANSWERS[id]));
+    await b.catalog.getOrFetchModels(fakeToken());
+    await settle();
+    assert.equal(b.probed.length, 2);
+  });
+
+  test('a damaged or foreign store is ignored, and answers older than 24 h are asked again', async () => {
+    for (const junk of ['x', 5, null, { v: 2, entries: {} }, { v: 1, entries: 'no' }, { v: 1, entries: { 'claude-opus-5': { at: 'x', outcome: { kind: 'levels', levels: ['low'] } } } }, { v: 1, entries: { 'claude-opus-5': { at: Date.now(), outcome: { kind: 'levels', levels: [1, 2] } } } }, { v: 1, entries: { 'claude-opus-5': { at: Date.now() - 25 * 3600_000, outcome: { kind: 'levels', levels: ['low'] } } } }]) {
+      const s = session({ value: junk }, (id) => Promise.resolve(ANSWERS[id]));
+      await s.catalog.getOrFetchModels(fakeToken());
+      await settle();
+      assert.ok(s.probed.includes('claude-opus-5'), JSON.stringify(junk));
+    }
   });
 });

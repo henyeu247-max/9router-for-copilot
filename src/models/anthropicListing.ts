@@ -43,6 +43,15 @@ export function decodeCloakedId(id: string): string {
   return reverseRunes(id.slice(CLOAK_PREFIX.length));
 }
 
+/**
+ * True when an Anthropic-style listing contains CLIProxyAPI's cloaked ids. Only that gateway does
+ * this, so it doubles as the signature that lets us tell it apart from Ollama, vLLM, OpenRouter...
+ */
+export function hasCloakedIds(payload: unknown): boolean {
+  const rows = (payload as { data?: unknown } | null | undefined)?.data;
+  return Array.isArray(rows) && rows.some((r) => typeof (r as { id?: unknown } | null)?.id === 'string' && ((r as { id: string }).id).startsWith(CLOAK_PREFIX) && (r as { id: string }).id.length > CLOAK_PREFIX.length);
+}
+
 const positive = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0;
 
 /**
