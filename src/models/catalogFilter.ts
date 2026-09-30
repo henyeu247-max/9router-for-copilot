@@ -16,8 +16,17 @@ const NON_CHAT_KINDS = new Set([
   'rerank', 'moderation', 'websearch', 'webfetch',
 ]);
 
+/**
+ * Model families that can never answer /chat/completions. Only consulted for rows that carry NO
+ * metadata at all (plain `{id, object, owned_by}` from gateways such as CLIProxyAPI). Measured on
+ * a live CLIProxyAPI: `gpt-image-*` answer `503 ... only supported on /v1/images/generations`.
+ * Deliberately narrow: `gemini-*-image` DOES answer chat, so it is not listed.
+ */
+const NON_CHAT_ID = /^(gpt-image|dall-e|imagen|sora|whisper|tts-|text-embedding|omni-moderation)/i;
+
 interface CatalogRow {
   id: string;
+  capabilities?: unknown;
   type?: unknown;
   kind?: unknown;
   supported_endpoints?: unknown;
@@ -36,6 +45,11 @@ export function isChatCapable(row: CatalogRow): boolean {
       const v = norm(e);
       return v === 'chat' || v === 'responses' || v.includes('chat/completions');
     });
+  }
+  // No type/kind/endpoints/capabilities: the only signal left is the id.
+  const hasMetadata = row.type !== undefined || row.kind !== undefined || row.capabilities !== undefined;
+  if (!hasMetadata && NON_CHAT_ID.test(row.id.slice(row.id.lastIndexOf('/') + 1))) {
+    return false;
   }
   return true;
 }

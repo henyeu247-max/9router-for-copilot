@@ -34,3 +34,21 @@ describe('model filter', () => {
     assert.equal(applyModelFilter(ms, 'zzz').length, 3);
   });
 });
+
+describe('id-based non-chat detection for rows without any metadata (CLIProxyAPI style)', () => {
+  test('hides OpenAI image/audio/embedding families when the row has no metadata', () => {
+    for (const id of ['gpt-image-2', 'gpt-image-2.5-sunburst', 'dall-e-3', 'imagen-4', 'sora-2', 'whisper-1', 'tts-1', 'text-embedding-3-small', 'omni-moderation-latest', 'ag/gpt-image-1.5']) {
+      assert.equal(isChatCapable({ id }), false, id);
+    }
+  });
+  test('keeps chat models, including gemini image models that DO answer chat (measured)', () => {
+    for (const id of ['gemini-3.1-flash-image', 'gpt-5.5', 'claude-opus-5', 'codex-auto-review', 'gpt-oss-120b-medium', 'cpa/gemini-3-flash']) {
+      assert.equal(isChatCapable({ id }), true, id);
+    }
+  });
+  test('a row that carries metadata is judged by that metadata, never by its id', () => {
+    assert.equal(isChatCapable({ id: 'gpt-image-2', capabilities: { tools: true } }), true);
+    assert.equal(isChatCapable({ id: 'gpt-image-2', kind: 'llm' }), true);
+    assert.equal(isChatCapable({ id: 'gpt-image-2', type: 'image' }), false);
+  });
+});

@@ -86,3 +86,23 @@ describe('slash encoding (opt-in)', () => {
     assert.equal(parseModelTarget('xai/grok-4.5', ['p'], 'p').rawModelId, 'xai/grok-4.5');
   });
 });
+
+describe('two profiles: 9Router default + CLIProxyAPI (raw ids that contain slashes)', () => {
+  const known = ['default', 'cliproxy'];
+  test('a CLIProxyAPI id with its own provider prefix round-trips', () => {
+    for (const raw of ['ag/claude-sonnet-4-6', 'cpa/gemini-3-flash', 'gemini-3-flash', 'claude-opus-5']) {
+      const exposed = formatExposedModelId('cliproxy', raw, true);
+      assert.deepEqual(parseModelTarget(exposed, known, 'default'), { profileId: 'cliproxy', rawModelId: raw });
+    }
+  });
+  test('a 9Router id that also exists on CLIProxyAPI stays routed to its own profile', () => {
+    const a = formatExposedModelId('default', 'gpt-6.1-sol', true);
+    const b = formatExposedModelId('cliproxy', 'gpt-6.1-sol', true);
+    assert.notEqual(a, b);
+    assert.equal(parseModelTarget(a, known, 'default').profileId, 'default');
+    assert.equal(parseModelTarget(b, known, 'default').profileId, 'cliproxy');
+  });
+  test('an id saved before the second profile existed (no prefix) still reaches the default profile', () => {
+    assert.deepEqual(parseModelTarget('cx/gpt-6.1-sol', known, 'default'), { profileId: 'default', rawModelId: 'cx/gpt-6.1-sol' });
+  });
+});

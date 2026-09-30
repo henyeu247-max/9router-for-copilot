@@ -13,6 +13,11 @@
 - Tool-name wire shortening (<= 64 chars) with reverse mapping; opt-in vision proxy; opt-in `::` model-id encoding; non-chat catalog filter + `modelFilter`; 429/503 retry; graceful HTTP 400 degradation (`reasoning_effort` first, tools only when the message says so); single-block thinking output.
 - Vietnamese localization (`package.nls.vi.json`, `l10n/bundle.l10n.vi.json`) with a test that fails when a key or string is missing.
 
+### Added (second gateway, verified live against CLIProxyAPI)
+- Adding another OpenAI-compatible gateway works through the existing multi-provider profiles. Verified on a live CLIProxyAPI (`127.0.0.1:8317`): `/v1/models` 200 with the key and 401 without; 43/53 listed models answer a streamed chat with usage; tool calls work (ids are unique); `reasoning_effort` is validated per model by that gateway.
+- Rows with no metadata whatsoever (`{id, object, owned_by}`) and an id of an OpenAI image/audio/embedding family (`gpt-image-*`, `dall-e*`, `imagen*`, `sora*`, `whisper*`, `tts-*`, `text-embedding*`, `omni-moderation*`) are hidden: measured `503 ... only supported on /v1/images/generations`. `gemini-*-image` stays (it answers chat). 9Router rows are never affected (0 of 623 match).
+- README documents the fallbacks such gateways get and how to tune them. Known: the gateway also lists models its upstream has retired (404/503 for 5 Claude ids); use `modelFilter`.
+
 ### Fixed (chat stuck on HTTP 400 `INVALID_ARGUMENT`)
 - **Duplicate tool-call ids.** A gateway can reuse a short id (`call_149461`) for two different tool calls in one chat. VS Code keeps the history, so every later request carried the same id twice and strict upstreams (Gemini) rejected all of them - the chat could never recover. Ids are now made unique before sending (first use keeps its id, later reuses get `..._dupN`, results are re-pointed; unique histories are untouched). Evidence from a real session log: 12/12 failing requests contained such a pair, 268/268 requests without one succeeded; on the real transcript the fix removes both duplicate ids and keeps call/result pairing. Existing chats recover on the next message because the history is re-sent each time. Not replayed against the live upstream (needs a key).
 

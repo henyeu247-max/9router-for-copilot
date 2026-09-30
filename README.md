@@ -73,6 +73,11 @@ Prefix: `9router-for-github-copilot.`
 | `inlineCompletionMaxPrefixChars` / `inlineCompletionMaxSuffixChars` | `4000` / `1000` | Context sent before / after the cursor |
 | `apiKey` | empty | Bearer token; prefer the panel or *Manage Providers* (kept in SecretStorage) |
 
+### Adding a second gateway (e.g. CLIProxyAPI on `http://127.0.0.1:8317/v1`)
+*9Router: Add Provider* (or the panel) -> name, Base URL ending in `/v1`, API key (kept in SecretStorage). Once two providers are enabled every model is shown as `<provider-id>/<model-id>`, so your previously selected model may need to be picked again; saved ids without a prefix still route to the default provider.
+
+Gateways that only return `{id, object, owned_by}` from `/v1/models` (no `capabilities`, `context_length`, `max_completion_tokens`) get the fallbacks: context `defaultMaxTokens`, output `defaultMaxOutputTokens`, no thinking picker. For those models: raise `defaultMaxOutputTokens` (e.g. `32768`; a declared limit on other gateways still wins), pin real windows with `modelContextWindows` (e.g. `{"claude-*": 200000}`), and set the effort in `perModelOptions` (e.g. `{"gemini-3.8-flash-high": {"reasoningEffort": "high"}}`). Rows that look like image/audio/embedding models (`gpt-image-*`, `dall-e*`, `whisper*`, ...) are hidden only when the row has no metadata at all. A gateway can still list models its upstream no longer serves (404/503); hide them with `modelFilter`, e.g. `^(?!claude-(opus-4-2|opus-4-1|sonnet-4-2|3-))`.
+
 ### Vision proxy (experimental)
 Works only when the server explicitly reports `capabilities.vision: false` for a model. Costs one extra request per message with images (`visionProxyModel`, or an auto-picked cheap vision model). If it fails, the image becomes `[Image Description unavailable]` and the chat continues.
 

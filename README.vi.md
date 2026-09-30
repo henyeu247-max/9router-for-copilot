@@ -73,6 +73,11 @@ Tiền tố: `9router-for-github-copilot.`
 | `inlineCompletionMaxPrefixChars` / `inlineCompletionMaxSuffixChars` | `4000` / `1000` | Ngữ cảnh gửi trước / sau con trỏ |
 | `apiKey` | trống | Bearer token; nên dùng bảng điều khiển hoặc *Quản lý nhà cung cấp* (lưu trong SecretStorage) |
 
+### Thêm gateway thứ hai (ví dụ CLIProxyAPI `http://127.0.0.1:8317/v1`)
+*9Router: Thêm nhà cung cấp* (hoặc bảng điều khiển) -> tên, Base URL kết thúc bằng `/v1`, khóa API (lưu trong SecretStorage). Khi có từ hai nhà cung cấp bật, mọi model hiện dạng `<id-nhà-cung-cấp>/<id-model>` nên model đã chọn trước đó có thể phải chọn lại; id đã lưu không có tiền tố vẫn định tuyến về nhà cung cấp mặc định.
+
+Gateway chỉ trả `{id, object, owned_by}` từ `/v1/models` (không có `capabilities`, `context_length`, `max_completion_tokens`) sẽ dùng giá trị dự phòng: context = `defaultMaxTokens`, output = `defaultMaxOutputTokens`, không có bộ chọn thinking. Với các model đó: tăng `defaultMaxOutputTokens` (ví dụ `32768`; giới hạn đã khai báo ở gateway khác vẫn ưu tiên), ghim cửa sổ thật bằng `modelContextWindows` (ví dụ `{"claude-*": 200000}`) và đặt mức effort trong `perModelOptions` (ví dụ `{"gemini-3.8-flash-high": {"reasoningEffort": "high"}}`). Dòng trông như model ảnh/audio/embedding (`gpt-image-*`, `dall-e*`, `whisper*`, ...) chỉ bị ẩn khi dòng đó không có metadata nào. Gateway vẫn có thể liệt kê model mà upstream đã ngừng phục vụ (404/503); ẩn bằng `modelFilter`, ví dụ `^(?!claude-(opus-4-2|opus-4-1|sonnet-4-2|3-))`.
+
 ### Vision proxy (thử nghiệm)
 Chỉ chạy khi máy chủ báo rõ `capabilities.vision: false` cho model. Tốn thêm một request cho mỗi tin nhắn có ảnh (`visionProxyModel`, hoặc model vision rẻ được tự chọn). Nếu lỗi, ảnh thành `[Image Description unavailable]` và chat vẫn tiếp tục.
 
