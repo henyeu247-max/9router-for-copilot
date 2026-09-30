@@ -15,7 +15,7 @@ Use **9Router** (and any OpenAI-compatible gateway) models inside GitHub Copilot
 
 **Connection & UI**
 - Activity Bar **panel**: online/offline dot, model count, URL + key form, per-provider health, quick links.
-- **Status bar**: click for *Quick Actions*; hover for a rich tooltip (models, context, last request, session tokens).
+- **Status bar**: coloured by gateway health - green dot = online, yellow = key rejected (401/403) or server erroring / rate limiting, red = unreachable, spinner = request running. Click for *Quick Actions*; hover for a rich tooltip (models, context, last request, session tokens).
 - **Health monitor**: probes each provider every 30 s (`healthCheckIntervalSeconds`) and reacts instantly to request results.
 - **Open 9Router dashboard** in your browser, or in an editor tab (`dashboardOpen: editor`, only when the gateway allows framing — otherwise it falls back automatically).
 - **Multiple provider profiles** (local + cloud at once), keys stored in VS Code SecretStorage.
@@ -28,11 +28,13 @@ Use **9Router** (and any OpenAI-compatible gateway) models inside GitHub Copilot
 - **429/503** → retry with `Retry-After` / exponential backoff.
 - **HTTP 400** → retry once without `reasoning_effort`; tools are dropped only when the error message says tools are unsupported. Never after output was shown.
 - **Context Window widget / compaction** follow VS Code's own maths (`maxInput + maxOutput` = real window); token usage is forwarded from the gateway, or estimated when the gateway sends none.
+- **Output limit** comes from the server (`max_completion_tokens` / `capabilities.maxOutput`, capped at half the window); `defaultMaxOutputTokens` only applies to models that declare none. A `max_tokens too large` error teaches the real ceiling and the request is retried once.
 - Real context limit learned from overflow errors; token budget keeps requests inside the window.
 - Non-chat rows (image/audio/embedding/rerank…) are hidden from the picker; Responses-only models are kept.
 
 **Models**
 - Catalog read from `/v1/models` (`capabilities`, `context_length`, `max_completion_tokens`).
+- **Thinking effort** picker (model picker -> gear/sub-menu) built from the levels your gateway publishes (`capabilities.thinkingRange`), plus `max` for Claude adaptive and `cx/gpt-6*`. Nothing is pre-selected: until you pick a level (or set `reasoningEffort` in `perModelOptions`/`extraModelOptions`) no `reasoning_effort` is sent. Models whose id already carries the tier (`...-high`, `...-none`) and models where the gateway ignores the level (MiniMax) show no picker. Turning thinking fully off is not offered.
 - `modelFilter` (regex/substring), `modelContextWindows`, `perModelOptions`.
 - Optional **vision proxy** for non-vision models, optional `::` model-id encoding.
 - Experimental inline (ghost-text) completions through `/v1/completions`.
@@ -56,12 +58,20 @@ Prefix: `9router-for-github-copilot.`
 | `modelFilter` | empty | Regex/substring to limit listed model ids (a filter matching nothing is ignored + logged) |
 | `enableToolCalling` / `parallelToolCalling` | `true` | Agent tools |
 | `agentTemperature` | `0` | Tool-call stability |
-| `defaultMaxTokens` / `defaultMaxOutputTokens` | see package.json | Fallback limits |
+| `defaultMaxTokens` | `262144` | Fallback TOTAL context window (input + output) when the server reports none |
+| `defaultMaxOutputTokens` | `4096` | Output limit ONLY for models that declare none (a declared limit always wins) |
 | `modelContextWindows` | `{}` | Per-model context overrides |
 | `perModelOptions` | `{}` | Per-model sampler params |
 | `enableImageInput` | `true` | Allow image attachments |
 | `visionProxyEnabled` / `visionProxyModel` | `false` / empty | Describe images for non-vision models (extra request; may use a paid model) |
 | `encodeSlashInModelId` | `false` | Show `/` in model ids as `::` (resets saved model choice when changed) |
+| `requestTimeout` | `60000` | Chat request timeout (ms) |
+| `customHeaders` / `extraModelOptions` | `{}` | Extra HTTP headers / extra body parameters for every request |
+| `enableInlineCompletion` | `false` | Experimental ghost-text completions (see below) |
+| `inlineCompletionProvider` / `inlineCompletionModel` | empty | Which provider / model answers inline completions (*Select Inline Completion Model*) |
+| `inlineCompletionMaxTokens` / `inlineCompletionDebounce` / `inlineCompletionTimeout` | `256` / `300` / `3000` | Length, typing pause (ms) and timeout (ms) of an inline request |
+| `inlineCompletionMaxPrefixChars` / `inlineCompletionMaxSuffixChars` | `4000` / `1000` | Context sent before / after the cursor |
+| `apiKey` | empty | Bearer token; prefer the panel or *Manage Providers* (kept in SecretStorage) |
 
 ### Vision proxy (experimental)
 Works only when the server explicitly reports `capabilities.vision: false` for a model. Costs one extra request per message with images (`visionProxyModel`, or an auto-picked cheap vision model). If it fails, the image becomes `[Image Description unavailable]` and the chat continues.
@@ -75,7 +85,9 @@ Works only when the server explicitly reports `capabilities.vision: false` for a
 - **No models?** Open the panel: the dot shows reachability. `curl <server-url>/models` should list models. Run *Test Server Connection*; enable `debugMode: metadata` and check *Show Output Log*.
 - **Tool calls printed as text?** `agentTemperature: 0`, disable `parallelToolCalling`, and enable auto tool choice on your server (vLLM: `--enable-auto-tool-choice`).
 - **Context overflow?** Add the model to `modelContextWindows`; the extension also learns the limit from the error and retries once.
-- **Agents window?** It runs in a separate process: add `"extensions.supportAgentsWindow": { "henyeu247-max.9router-for-github-copilot": true }` and reload.
+- **Thinking picker missing on a model?** Either the model id already contains the tier, the gateway reports no `thinkingRange`/format for it, or it is a MiniMax model. Check the *Output Log* with `debugMode: metadata`.
+- **Model not in the list (e.g. a newly released one)?** The list is what your gateway returns from `/v1/models`. Add the model in the 9Router dashboard, then run *Refresh Models*.
+- **Copilot Agents window?** Not supported by this build (it needs a proposed VS Code API).
 
 ## Privacy
 
@@ -93,5 +105,7 @@ npm run vsix          # package (runs the production build first)
 ```
 
 ## License and attribution
+
+Verify a live gateway with `npm run smoke` (activation in an isolated VS Code) and `NINEROUTER_API_KEY=... node scripts/probe-thinking.cjs` (real requests per thinking level).
 
 MIT. A derivative work combining [arbs-io/github-copilot-llm-gateway](https://github.com/arbs-io/github-copilot-llm-gateway), [hotrungnhan/9router-for-github-copilot](https://github.com/hotrungnhan/9router-for-github-copilot), [Vizards/deepseek-v4-for-copilot](https://github.com/Vizards/deepseek-v4-for-copilot) and [diegosouzapw/OmniCopilot](https://github.com/diegosouzapw/OmniCopilot). All copyright notices are kept in [LICENSE](LICENSE) and [NOTICE](NOTICE).

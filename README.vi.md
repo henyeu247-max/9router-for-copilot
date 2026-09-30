@@ -15,7 +15,7 @@ Dùng model của **9Router** (và mọi gateway tương thích OpenAI) ngay tro
 
 **Kết nối & giao diện**
 - **Bảng điều khiển** Activity Bar: chấm online/offline, số model, form URL + khóa, sức khỏe từng nhà cung cấp, liên kết nhanh.
-- **Thanh trạng thái**: bấm để mở *Thao tác nhanh*; rê chuột xem tooltip (model, context, request gần nhất, token phiên).
+- **Thanh trạng thái** đổi màu theo sức khỏe gateway: chấm xanh = online, vàng = khóa bị từ chối (401/403) hoặc máy chủ lỗi / giới hạn tốc độ, đỏ = không kết nối được, vòng xoay = đang chạy request. Bấm để mở *Thao tác nhanh*; rê chuột xem tooltip (model, context, request gần nhất, token phiên).
 - **Giám sát sức khỏe**: kiểm tra mỗi nhà cung cấp 30 giây/lần (`healthCheckIntervalSeconds`), phản ứng ngay theo kết quả request.
 - **Mở dashboard 9Router** trên trình duyệt hoặc trong tab VS Code (`dashboardOpen: editor`, chỉ khi gateway cho phép nhúng — nếu không sẽ tự mở bằng trình duyệt).
 - **Nhiều hồ sơ nhà cung cấp** (local + cloud cùng lúc), khóa lưu trong SecretStorage của VS Code.
@@ -28,11 +28,13 @@ Dùng model của **9Router** (và mọi gateway tương thích OpenAI) ngay tro
 - **429/503** → thử lại theo `Retry-After` / backoff lũy thừa.
 - **HTTP 400** → thử lại một lần không có `reasoning_effort`; chỉ bỏ tools khi thông báo lỗi nói tools không được hỗ trợ. Không bao giờ thử lại sau khi đã hiện kết quả.
 - **Widget Context Window / compact** theo đúng công thức của VS Code (`maxInput + maxOutput` = cửa sổ thật); usage lấy từ gateway, hoặc tự ước lượng khi gateway không gửi.
+- **Giới hạn output** lấy từ máy chủ (`max_completion_tokens` / `capabilities.maxOutput`, tối đa một nửa cửa sổ); `defaultMaxOutputTokens` chỉ áp cho model không khai báo. Lỗi `max_tokens too large` giúp học giới hạn thật và thử lại một lần.
 - Học giới hạn context thật từ lỗi tràn; ngân sách token giữ request trong cửa sổ.
 - Model không phải chat (ảnh/audio/embedding/rerank…) bị ẩn khỏi bộ chọn; model chỉ có Responses vẫn giữ.
 
 **Model**
 - Danh mục đọc từ `/v1/models` (`capabilities`, `context_length`, `max_completion_tokens`).
+- Bộ chọn **Thinking effort** (menu con trong bộ chọn model) dựng từ các mức gateway công bố (`capabilities.thinkingRange`), thêm `max` cho Claude adaptive và `cx/gpt-6*`. Không chọn sẵn mức nào: cho tới khi anh chọn (hoặc đặt `reasoningEffort` trong `perModelOptions`/`extraModelOptions`) thì không gửi `reasoning_effort`. Model có tier trong id (`...-high`, `...-none`) và model mà gateway bỏ qua mức (MiniMax) không hiện bộ chọn. Không có tùy chọn tắt hẳn thinking.
 - `modelFilter` (regex/chuỗi con), `modelContextWindows`, `perModelOptions`.
 - **Vision proxy** tùy chọn cho model không có vision; mã hóa id `::` tùy chọn.
 - Inline completion (ghost-text) thử nghiệm qua `/v1/completions`.
@@ -56,12 +58,20 @@ Tiền tố: `9router-for-github-copilot.`
 | `modelFilter` | trống | Regex/chuỗi con lọc id model (bộ lọc không khớp gì sẽ bị bỏ qua + ghi log) |
 | `enableToolCalling` / `parallelToolCalling` | `true` | Tool cho agent |
 | `agentTemperature` | `0` | Độ ổn định khi gọi tool |
-| `defaultMaxTokens` / `defaultMaxOutputTokens` | `262144` / `4096` | Giới hạn dự phòng |
+| `defaultMaxTokens` | `262144` | TỔNG cửa sổ context dự phòng (vào + ra) khi máy chủ không báo |
+| `defaultMaxOutputTokens` | `4096` | Giới hạn output CHỈ cho model không khai báo (giới hạn đã khai báo luôn ưu tiên) |
 | `modelContextWindows` | `{}` | Ghi đè context theo model |
 | `perModelOptions` | `{}` | Tham số sampler theo model |
 | `enableImageInput` | `true` | Cho phép đính kèm ảnh |
 | `visionProxyEnabled` / `visionProxyModel` | `false` / trống | Mô tả ảnh cho model không có vision (thêm một request, có thể dùng model trả phí) |
 | `encodeSlashInModelId` | `false` | Hiện `/` trong id model thành `::` (đổi sẽ đặt lại model đã chọn) |
+| `requestTimeout` | `60000` | Thời gian chờ request chat (ms) |
+| `customHeaders` / `extraModelOptions` | `{}` | Header HTTP thêm / tham số body thêm cho mọi request |
+| `enableInlineCompletion` | `false` | Gợi ý chữ mờ thử nghiệm (xem bên dưới) |
+| `inlineCompletionProvider` / `inlineCompletionModel` | trống | Nhà cung cấp / model trả lời inline completion (*Chọn model inline completion*) |
+| `inlineCompletionMaxTokens` / `inlineCompletionDebounce` / `inlineCompletionTimeout` | `256` / `300` / `3000` | Độ dài, khoảng dừng gõ (ms) và timeout (ms) của một request inline |
+| `inlineCompletionMaxPrefixChars` / `inlineCompletionMaxSuffixChars` | `4000` / `1000` | Ngữ cảnh gửi trước / sau con trỏ |
+| `apiKey` | trống | Bearer token; nên dùng bảng điều khiển hoặc *Quản lý nhà cung cấp* (lưu trong SecretStorage) |
 
 ### Vision proxy (thử nghiệm)
 Chỉ chạy khi máy chủ báo rõ `capabilities.vision: false` cho model. Tốn thêm một request cho mỗi tin nhắn có ảnh (`visionProxyModel`, hoặc model vision rẻ được tự chọn). Nếu lỗi, ảnh thành `[Image Description unavailable]` và chat vẫn tiếp tục.
@@ -75,7 +85,9 @@ Chỉ chạy khi máy chủ báo rõ `capabilities.vision: false` cho model. T�
 - **Không thấy model?** Mở bảng điều khiển: chấm cho biết gateway có kết nối được không. `curl <server-url>/models` phải liệt kê model. Chạy *Kiểm tra kết nối máy chủ*; bật `debugMode: metadata` rồi xem *Xem nhật ký*.
 - **Tool bị in ra dạng chữ?** `agentTemperature: 0`, tắt `parallelToolCalling`, bật auto tool choice trên máy chủ (vLLM: `--enable-auto-tool-choice`).
 - **Tràn context?** Thêm model vào `modelContextWindows`; tiện ích cũng tự học giới hạn từ lỗi và thử lại một lần.
-- **Cửa sổ Agents?** Chạy ở tiến trình riêng: thêm `"extensions.supportAgentsWindow": { "henyeu247-max.9router-for-github-copilot": true }` rồi reload.
+- **Không thấy bộ chọn thinking ở một model?** Hoặc id model đã chứa tier, hoặc gateway không báo `thinkingRange`/format cho nó, hoặc là model MiniMax. Bật `debugMode: metadata` và xem *Output Log*.
+- **Model không có trong danh sách (ví dụ model mới ra)?** Danh sách là những gì gateway trả về từ `/v1/models`. Thêm model trong dashboard 9Router rồi chạy *Làm mới danh sách model*.
+- **Cửa sổ Copilot Agents?** Bản này không hỗ trợ (cần API VS Code thử nghiệm).
 
 ## Quyền riêng tư
 
@@ -91,6 +103,8 @@ npm test              # vitest run
 npm run compile       # bundle dev -> dist/
 npm run vsix          # đóng gói (build production trước)
 ```
+
+Kiểm tra với gateway thật: `npm run smoke` (kích hoạt trong VS Code cô lập) và `NINEROUTER_API_KEY=... node scripts/probe-thinking.cjs` (request thật theo từng mức thinking).
 
 ## Giấy phép và ghi công
 
