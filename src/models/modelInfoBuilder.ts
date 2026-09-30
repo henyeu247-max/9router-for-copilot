@@ -57,14 +57,9 @@ const GEMINI_BUDGET_EFFORTS = ['low', 'medium', 'high'] as const;
  * Levels the request path can put on the wire. Anything else is dropped by
  * pickReasoningEffort, so the picker must never offer it.
  */
-export const WIRE_EFFORT_LEVELS: ReadonlySet<string> = new Set([
-  'minimal',
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-  'max',
-]);
+export const LEVEL_ORDER: readonly string[] = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+
+export const WIRE_EFFORT_LEVELS: ReadonlySet<string> = new Set(LEVEL_ORDER);
 
 /**
  * budget_tokens 9Router derives from a level (LEVEL_TO_BUDGET in
@@ -281,13 +276,62 @@ export function resolveReasoningEffortSchema(
 }
 
 /**
+ * Levels a model accepts although the gateway's `capabilities.thinkingRange` omits them.
+ *
+ * MEASURED, not assumed: on the gateway this was built against, every model of a given
+ * thinking format reports the SAME list (e.g. all 59 claude-adaptive models report
+ * [low, medium, high]) - it is a per-format default, not per-model information, so it is
+ * treated as a floor and not as the complete list. A level is added here only when BOTH
+ * hold:
+ *  - the gateway delivers it: its translator sends `reasoning_effort` through unchanged
+ *    and, for claude-adaptive, as `output_config.effort` (only `xhigh` is folded into
+ *    `high`, so `xhigh` is deliberately NOT added for Claude);
+ *  - the vendor documents it for every model in the rule.
+ *
+ * claude-adaptive -> `max`: platform.claude.com/docs/en/build-with-claude/effort lists `max`
+ *   on Opus 4.6-5.5, Sonnet 4.6/5/5.5 and Fable 5/5.1 - every adaptive model seen.
+ * cx/gpt-6* -> `max`: the Codex provider entry of 9Router declares
+ *   thinkingLevels low|medium|high|xhigh|max for gpt-6-sol/luna. `gpt-6.1-sol` is not in
+ *   that registry, so this is an inference from the model family.
+ */
+interface ExtraLevelRule {
+  readonly format: string;
+  readonly idPattern?: RegExp;
+  readonly add: readonly string[];
+}
+export const EXTRA_LEVEL_RULES: readonly ExtraLevelRule[] = [
+  { format: 'claude-adaptive', add: ['max'] },
+  { format: 'openai', idPattern: /^cx\/gpt-6/i, add: ['max'] },
+];
+
+/** Levels {@link EXTRA_LEVEL_RULES} add for this model (possibly empty). */
+export function extraEffortLevels(model: OpenAIModel): readonly string[] {
+  const format = model.capabilities?.thinkingFormat;
+  return EXTRA_LEVEL_RULES.filter(
+    (rule) => rule.format === format && (rule.idPattern === undefined || rule.idPattern.test(model.id))
+  ).flatMap((rule) => rule.add);
+}
+
+/**
+ * Server list + documented extras, always in canonical low -> high order (so the
+ * picker looks the same whichever branch produced the list). LEVEL_ORDER is also the
+ * source of WIRE_EFFORT_LEVELS, so no sendable level can be lost by the ordering.
+ */
+function withExtras(model: OpenAIModel, base: readonly string[]): readonly string[] {
+  if (base.length === 0) {
+    return base; // the server listed nothing sendable: no picker, no resurrection
+  }
+  const merged = new Set([...base, ...extraEffortLevels(model)]);
+  return LEVEL_ORDER.filter((level) => merged.has(level));
+}
+
+/**
  * The level list for the picker, most authoritative first:
- *  1. `capabilities.reasoningEffort` - an explicit list (GitHub Copilot style).
- *  2. `capabilities.thinkingRange` when it is an array of levels - 9Router's own
- *     per-model list. Kept in the server's order, limited to levels the request
- *     path can send. If the server lists levels but none are sendable, the model
- *     gets no picker (a fallback would contradict the server).
- *  3. The per-format fallback table.
+ *  1. `capabilities.reasoningEffort` - an explicit list (GitHub Copilot style). Used as is.
+ *  2. `capabilities.thinkingRange` when it is an array of levels - limited to levels the
+ *     request path can send, then completed with {@link EXTRA_LEVEL_RULES}. If the server
+ *     lists levels but none are sendable, the model gets no picker.
+ *  3. The per-format fallback table (also completed with the extras).
  */
 export function resolveEffortLevels(
   model: OpenAIModel,
@@ -306,15 +350,18 @@ export function resolveEffortLevels(
     return sendable(caps.reasoningEffort);
   }
   if (Array.isArray(caps?.thinkingRange) && caps.thinkingRange.length > 0) {
-    return sendable(caps.thinkingRange);
+    return withExtras(model, sendable(caps.thinkingRange));
   }
   const fallback = pickEffortsForFormat(model);
   if (!fallback) {
     return undefined;
   }
-  return caps?.thinkingFormat === 'claude-budget'
-    ? fallback.filter((level) => budgetFitsOutput(level, maxOutputTokens))
-    : fallback;
+  return withExtras(
+    model,
+    caps?.thinkingFormat === 'claude-budget'
+      ? fallback.filter((level) => budgetFitsOutput(level, maxOutputTokens))
+      : fallback
+  );
 }
 
 function budgetFitsOutput(level: string, maxOutputTokens: number | undefined): boolean {

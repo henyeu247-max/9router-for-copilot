@@ -2,11 +2,13 @@
 /**
  * Live probe: does the gateway really accept every thinking-effort level the picker offers?
  *
- *   NINEROUTER_API_KEY=sk-... node scripts/probe-thinking.cjs [--base URL] [--models id1,id2] [--control]
+ *   NINEROUTER_API_KEY=sk-... node scripts/probe-thinking.cjs [--base URL] [--models id1,id2] [--try max,xhigh] [--control]
  *
  * For each selected model it sends one tiny request per advertised level (thinkingRange) plus a
  * no-effort baseline, and prints HTTP status, whether reasoning text came back, and any error.
  * Defaults to one cheap, non-combo, no-tier-in-id model per thinking format.
+ * --try adds extra levels to test beyond the gateway's list (its list is a per-format default; the
+ *   extension also offers `max` for claude-adaptive and cx/gpt-6*, e.g. --models cc/claude-opus-5,cx/gpt-6.1-sol --try max).
  * --control also sends the level "bogus" to show whether the gateway validates levels at all.
  * Costs a few hundred tokens per call. The key is read from the environment only and never printed.
  */
@@ -16,6 +18,7 @@ const BASE = opt('--base', 'http://127.0.0.1:20128/v1').replace(/\/$/, '');
 const KEY = process.env.NINEROUTER_API_KEY || '';
 const only = opt('--models', '') ? opt('--models', '').split(',') : null;
 const control = argv.includes('--control');
+const extra = opt('--try', '') ? opt('--try', '').split(',').map((s) => s.trim()).filter(Boolean) : [];
 const headers = { 'content-type': 'application/json', ...(KEY ? { authorization: `Bearer ${KEY}` } : {}) };
 
 const TIER = new Set(['low', 'medium', 'high', 'extra', 'max', 'xhigh', 'thinking', 'agentic', 'none', 'minimal']);
@@ -60,13 +63,14 @@ async function call(model, effort) {
   for (const m of targets) {
     const c = m.capabilities ?? {};
     const levels = Array.isArray(c.thinkingRange) ? c.thinkingRange : [];
+    // note: `levels` is the gateway's own list; --try levels are tested in addition
     console.log(`\n## ${m.id}  format=${c.thinkingFormat}  advertised=${JSON.stringify(levels)}  canDisable=${c.thinkingCanDisable}`);
     const base = await call(m.id, null);
     console.log(`  baseline   ${base.status} ${base.ms}ms reasoning=${base.reasoning} out="${base.out}" ${base.error}`);
     if (base.status === 401) { console.error('  -> 401: set NINEROUTER_API_KEY'); process.exitCode = 3; return; }
     if (base.status !== 200) { summary.push([m.id, 'baseline-failed']); continue; }
     let bad = 0;
-    for (const lv of [...levels, ...(control ? ['bogus'] : [])]) {
+    for (const lv of [...new Set([...levels, ...extra])].concat(control ? ['bogus'] : [])) {
       const r = await call(m.id, lv);
       const ok = r.status === 200;
       if (!ok && lv !== 'bogus') { bad++; }

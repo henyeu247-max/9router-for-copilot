@@ -73,7 +73,7 @@ describe.skipIf(rows.length === 0)('real 9Router payload: context/compact invari
 });
 
 // ---------- Thinking effort (picker schema -> request wire), N/N over the real catalogue ----------
-import { WIRE_EFFORT_LEVELS, hasReasoningTierInName } from '../modelInfoBuilder';
+import { EXTRA_LEVEL_RULES, WIRE_EFFORT_LEVELS, extraEffortLevels, hasReasoningTierInName } from '../modelInfoBuilder';
 import { pickReasoningEffort, resolveSendableEffort } from '../../chat/reasoningEffort';
 
 describe.skipIf(rows.length === 0)('real 9Router payload: thinking effort', () => {
@@ -105,17 +105,59 @@ describe.skipIf(rows.length === 0)('real 9Router payload: thinking effort', () =
     assert.ok(offered > 500);
   });
 
-  test('when the server publishes a level list, the picker offers exactly those levels (no invented ones)', () => {
+  test('the picker offers every level the server lists, plus ONLY the documented extras', () => {
     let checked = 0;
+    let withExtras = 0;
     for (const m of rows) {
       const r = range(m);
       const p = prop(m);
       if (!r || !p) { continue; }
       checked++;
-      const expected = [...new Set(r.map((x) => x.toLowerCase()).filter((x) => WIRE_EFFORT_LEVELS.has(x)))];
-      assert.deepEqual(p.enum, expected, m.id);
+      const server = [...new Set(r.map((x) => x.toLowerCase()).filter((x) => WIRE_EFFORT_LEVELS.has(x)))];
+      const extras = extraEffortLevels(m);
+      for (const level of server) { assert.ok(p.enum.includes(level), `${m.id}: server level ${level} missing`); }
+      const added = p.enum.filter((l: string) => !server.includes(l));
+      assert.deepEqual(added, extras.filter((l) => !server.includes(l)), `${m.id}: only rule-based extras may be added`);
+      if (added.length) { withExtras++; }
     }
     assert.ok(checked > 100);
+    // independent count (does not reuse extraEffortLevels): claude-adaptive or cx/gpt-6* models
+    // with a picker whose server list lacks max must all have gained exactly that level
+    const expected = rows.filter(
+      (m) =>
+        prop(m) &&
+        !(range(m) ?? []).includes('max') &&
+        (m.capabilities?.thinkingFormat === 'claude-adaptive' ||
+          (m.capabilities?.thinkingFormat === 'openai' && /^cx\/gpt-6/i.test(m.id)))
+    ).length;
+    assert.equal(withExtras, expected);
+    assert.ok(expected > 0);
+  });
+
+  test('claude-adaptive: every model offers max, none offers xhigh (this gateway folds xhigh into high)', () => {
+    let n = 0;
+    for (const m of rows) {
+      if (m.capabilities?.thinkingFormat !== 'claude-adaptive' || !prop(m)) { continue; }
+      n++;
+      assert.ok(prop(m)!.enum.includes('max'), `${m.id} has no max`);
+      assert.ok(!prop(m)!.enum.includes('xhigh'), `${m.id} offers xhigh, which would silently become high`);
+    }
+    assert.ok(n > 10);
+  });
+
+  test('cx/gpt-6* (incl. 6.1-sol) offers max; other openai-format models do not get it from the rules', () => {
+    for (const m of rows) {
+      if (m.capabilities?.thinkingFormat !== 'openai' || !prop(m)) { continue; }
+      const expectMax = /^cx\/gpt-6/i.test(m.id);
+      const has = prop(m)!.enum.includes('max');
+      const serverHasMax = (range(m) ?? []).includes('max');
+      if (expectMax) { assert.ok(has, `${m.id} should offer max`); }
+      else if (!serverHasMax) { assert.ok(!has, `${m.id} must not get max`); }
+    }
+  });
+
+  test('every extra rule points at a level the request path can send', () => {
+    for (const rule of EXTRA_LEVEL_RULES) { for (const l of rule.add) { assert.ok(WIRE_EFFORT_LEVELS.has(l)); } }
   });
 
   test('a reasoning model with a published list and no tier in its id always gets a picker', () => {

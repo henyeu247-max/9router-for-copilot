@@ -4,6 +4,8 @@ import {
   PROVIDER_DETAIL_LABEL,
   PROVIDER_MULTIPLIER_NUMERIC,
   REASONING_TIER_KEYWORDS,
+  LEVEL_ORDER,
+  WIRE_EFFORT_LEVELS,
   buildModelInfo,
   hasReasoningTierInName,
   splitModelSegments,
@@ -737,10 +739,35 @@ describe('thinking effort follows what the server publishes (thinkingRange)', ()
     assert.equal(p?.default, undefined);
   });
 
-  test('claude-adaptive publishes low|medium|high -> max/xhigh are NOT offered', () => {
+  test('claude-adaptive: the gateway list (low|medium|high) is a floor - max is added, xhigh is not (folded into high)', () => {
     const p = build('lenec.tech/claude-sonnet-5', { thinkingFormat: 'claude-adaptive', thinkingRange: ['low', 'medium', 'high'] });
-    assert.deepEqual(p?.enum, ['low', 'medium', 'high']);
+    assert.deepEqual(p?.enum, ['low', 'medium', 'high', 'max']);
     assert.equal(p?.default, undefined);
+  });
+
+  test('claude-adaptive without any list gets the same levels from the fallback table', () => {
+    assert.deepEqual(build('x/claude-opus-5', { thinkingFormat: 'claude-adaptive' })?.enum, ['low', 'medium', 'high', 'max']);
+  });
+
+  test('max is added exactly once when the server already lists it', () => {
+    const p = build('x/claude-opus-5', { thinkingFormat: 'claude-adaptive', thinkingRange: ['low', 'high', 'max'] });
+    assert.deepEqual(p?.enum, ['low', 'high', 'max']);
+  });
+
+  test('cx/gpt-6.1-sol gets max; the same model behind another provider prefix does not', () => {
+    const range = ['minimal', 'low', 'medium', 'high', 'xhigh'];
+    assert.deepEqual(build('cx/gpt-6.1-sol', { thinkingFormat: 'openai', thinkingRange: range })?.enum, [...range, 'max']);
+    assert.deepEqual(build('cx/gpt-6-sol', { thinkingFormat: 'openai', thinkingRange: range })?.enum, [...range, 'max']);
+    assert.deepEqual(build('cl/openai/gpt-6.1-sol', { thinkingFormat: 'openai', thinkingRange: range })?.enum, range);
+    assert.deepEqual(build('cx/gpt-5.6-sol', { thinkingFormat: 'openai', thinkingRange: range })?.enum, range);
+  });
+
+  test('an explicit capabilities.reasoningEffort list is authoritative and gets no extras', () => {
+    assert.deepEqual(build('x/claude-opus-5', { thinkingFormat: 'claude-adaptive', reasoningEffort: ['low', 'high'] })?.enum, ['low', 'high']);
+  });
+
+  test('a list with nothing sendable still means no picker (extras never resurrect it)', () => {
+    assert.equal(build('x/claude-opus-5', { thinkingFormat: 'claude-adaptive', thinkingRange: ['none'] }), undefined);
   });
 
   test('levels the request path cannot send (none, thinking, junk) are dropped, duplicates collapsed', () => {
@@ -795,5 +822,21 @@ describe('tier baked into the model id hides the picker (measured on a real cata
     for (const id of ['cu/claude-opus-5-5-max', 'cu/gpt-5.6-sol-max-fast', 'ds/deepseek-v4-pro-max']) {
       assert.equal(hidden(id), true, id);
     }
+  });
+});
+
+describe('effort level ordering invariants', () => {
+  test('LEVEL_ORDER contains every sendable level exactly once (ordering can never drop a level)', () => {
+    assert.deepEqual([...WIRE_EFFORT_LEVELS].sort(), [...LEVEL_ORDER].sort());
+    assert.equal(new Set(LEVEL_ORDER).size, LEVEL_ORDER.length);
+  });
+  test('server order is normalised to low -> high whichever branch produced the list', () => {
+    const p = buildModelInfo({
+      model: baseModel({ id: 'x/m', capabilities: { reasoning: true, thinkingFormat: 'kimi', thinkingRange: ['max', 'low', 'high'] } }),
+      defaultMaxTokens: 262144,
+      defaultMaxOutputTokens: 4096,
+      capabilities: {},
+    }).info.configurationSchema?.properties.reasoningEffort;
+    assert.deepEqual(p?.enum, ['low', 'high', 'max']);
   });
 });
