@@ -96,6 +96,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   context.subscriptions.push(health);
   provider.attachHealthMonitor(health);
+  statusManager.setHealthSource(() => health.getOverall());
 
   const panelProvider = new NineRouterPanelProvider(provider, health, async () => {
     await refreshStatusBar();

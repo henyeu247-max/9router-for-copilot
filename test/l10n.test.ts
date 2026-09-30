@@ -57,4 +57,11 @@ describe('localization', () => {
       assert.equal((vi.match(/\{\d+\}/g) ?? []).join(), (en.match(/\{\d+\}/g) ?? []).join(), en);
     }
   });
+  test('status bar labels (passed to l10n.t through a variable) are translated byte-for-byte', () => {
+    const text = readFileSync(join(root, 'src', 'status', 'statusBarAppearance.ts'), 'utf8');
+    const labels = new Set([...text.matchAll(/label: '([^']+)'/g)].map((m) => m[1]));
+    const bundle = read('l10n/bundle.l10n.vi.json');
+    assert.ok(labels.size >= 5);
+    for (const l of labels) { assert.ok(bundle[l], `missing vi translation for: ${l}`); }
+  });
 });

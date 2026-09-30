@@ -81,6 +81,16 @@ export class HealthMonitor {
     this.set(profileId, ok ? 'online' : 'offline');
   }
 
+  /**
+   * A chat request failed. Classify by what the failure says instead of calling
+   * every error "offline": a 400 means the gateway answered (online), 401/403 is
+   * auth, 429/5xx is degraded, and only "no HTTP answer at all" is offline.
+   */
+  reportRequestError(profileId: string, errorMessage: string): void {
+    const m = /(?:failed|returned|HTTP)[: ]+(\d{3})\b/i.exec(errorMessage);
+    this.set(profileId, classifyHttpStatus(m ? Number(m[1]) : undefined));
+  }
+
   /** Probe every target now; resolves once all have answered. */
   async checkNow(): Promise<HealthStatus> {
     const targets = this.deps.getTargets();

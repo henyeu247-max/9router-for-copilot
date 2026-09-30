@@ -206,8 +206,9 @@ export class GatewayProvider
             // A finished request is stronger evidence than the last probe.
             if (event.kind === 'complete') {
               this.health?.reportRequest(profile.id, true);
-            } else if (event.kind === 'error') {
-              this.health?.reportRequest(profile.id, false);
+            } else if (event.kind === 'error' && !event.cancelled) {
+              // A user cancel says nothing about the gateway's health.
+              this.health?.reportRequestError(profile.id, event.errorMessage);
             }
           },
           onCompleted: (modelId, modelName, usage, p) =>

@@ -4,6 +4,8 @@ import { StatusBarState, renderStatusBar } from './statusBarRenderer';
 import { extractHost } from './format';
 import { StatusSnapshot } from './statusSnapshot';
 import { renderStatusTooltipHtml } from './statusTooltip';
+import type { HealthStatus } from './healthMonitor';
+import { statusBarAppearance } from './statusBarAppearance';
 
 /** How long the "responded" pulse stays in the bar before reverting to idle. */
 const RESPONDED_DISPLAY_MS = 10_000;
@@ -17,6 +19,7 @@ export class StatusBarManager implements vscode.Disposable {
   private state: StatusBarState;
   private respondedRevertTimer?: NodeJS.Timeout;
   private activeRequestCount = 0;
+  private getHealth: () => HealthStatus = () => 'checking';
   private cachedIdle: { host: string; modelIds: readonly string[] } = {
     host: '',
     modelIds: [],
@@ -36,6 +39,12 @@ export class StatusBarManager implements vscode.Disposable {
    * from the snapshot, so any new data shows up the next time the user hovers
    * the status bar — even if the bar's icon state hasn't changed.
    */
+  /** Health source for the colour dot (set once the monitor exists). */
+  setHealthSource(getHealth: () => HealthStatus): void {
+    this.getHealth = getHealth;
+    this.render();
+  }
+
   refreshTooltip(): void {
     this.render();
   }
@@ -123,6 +132,12 @@ export class StatusBarManager implements vscode.Disposable {
 
   private onRequestError(event: Extract<RequestStateEvent, { kind: 'error' }>): void {
     this.activeRequestCount = Math.max(0, this.activeRequestCount - 1);
+    if (event.cancelled) {
+      // Cancelled by the user: back to idle, not a red "connection failed".
+      this.cancelRespondedRevert();
+      if (this.activeRequestCount === 0) { this.applyIdle(); } else { this.render(); }
+      return;
+    }
     this.setError(event.errorMessage);
   }
 
@@ -161,13 +176,19 @@ export class StatusBarManager implements vscode.Disposable {
     // tooltip, which is the closest stable-API approximation to GHCP's
     // floating popup (`chatStatusItem` is proposed-API-only).
     const { text } = renderStatusBar(this.state);
-    this.item.text = text;
+    // Colour + icon come from gateway health (green / yellow / red), like Omni's dot.
+    const look = statusBarAppearance(this.getHealth(), this.activeRequestCount > 0);
+    this.item.text = text.replace(/^\$\([^)]*\)/, `$(${look.icon})`);
+    this.item.color = look.color ? new vscode.ThemeColor(look.color) : undefined;
+    this.item.backgroundColor = look.background ? new vscode.ThemeColor(look.background) : undefined;
     // Tooltip renders as the GHCP-style popup: HTML card with theme icons,
     // section headers, and command-link buttons. MarkdownString runs the value
     // through VS Code's hover renderer, which is the closest stable-API path
     // to a click-triggered floating popup (`chatStatusItem` is proposed-only).
     const tooltipHtml = renderStatusTooltipHtml(this.getSnapshot());
-    const md = new vscode.MarkdownString(tooltipHtml);
+    const md = new vscode.MarkdownString(`**9Router — ${vscode.l10n.t(look.label)}**
+
+${tooltipHtml}`);
     md.isTrusted = true;
     md.supportThemeIcons = true;
     md.supportHtml = true;

@@ -90,6 +90,8 @@ export type RequestStateEvent =
     readonly modelId: string;
     readonly modelName: string;
     readonly errorMessage: string;
+    /** The user cancelled the request: not a gateway failure. */
+    readonly cancelled?: boolean;
   };
 
 /**
@@ -165,7 +167,8 @@ export class ChatRequestHandler {
     let openAIMessages = convertAllMessages(messages, config.enableImageInput, log);
     openAIMessages = await this.applyVisionProxy(openAIMessages, model, config, token);
     log(`Converted to ${openAIMessages.length} OpenAI messages`);
-    this.logMessageStructure(openAIMessages);
+    // Per-message / per-tool lines are O(history): only with debugMode != off.
+    if (config.debugMode !== 'off') { this.logMessageStructure(openAIMessages); }
 
 
     // Filter the tool catalog up-front so the token budget reflects what we
@@ -363,6 +366,7 @@ export class ChatRequestHandler {
         modelId: model.id,
         modelName,
         errorMessage: error instanceof Error ? error.message : String(error),
+        cancelled: token.isCancellationRequested,
       });
       handleChatError(error, log, this.deps.showOutput);
     }
@@ -428,13 +432,16 @@ export class ChatRequestHandler {
 
     const nameMap = buildToolNameMap(options.tools.map((t) => t.name));
     const tools: OpenAIToolDefinition[] = options.tools.map((tool) => {
-      this.deps.log(`Tool: ${tool.name}`);
-      this.deps.log(`  Description: ${formatToolDescription(tool.description)}`);
+      const detail = config.debugMode !== 'off';
+      if (detail) {
+        this.deps.log(`Tool: ${tool.name}`);
+        this.deps.log(`  Description: ${formatToolDescription(tool.description)}`);
+      }
 
       const schema = tool.inputSchema as Record<string, unknown> | undefined;
       schemas.set(tool.name, schema);
 
-      if (schema?.required && Array.isArray(schema.required)) {
+      if (detail && schema?.required && Array.isArray(schema.required)) {
         this.deps.log(
           `  Required properties: ${(schema.required as string[]).join(', ')}`
         );

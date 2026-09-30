@@ -248,6 +248,7 @@
           "type": "boolean",
           "default": false,
           "description": "%cfg.verboseLogging%",
+          "deprecationMessage": "%cfg.verboseLogging.deprecated%",
           "order": 10
         },
         "9router-for-github-copilot.customHeaders": {
@@ -280,6 +281,7 @@
         "9router-for-github-copilot.enableInlineCompletion": {
           "type": "boolean",
           "default": false,
+          "description": "%cfg.enableInlineCompletion%",
           "order": 14
         },
         "9router-for-github-copilot.inlineCompletionProvider": {
@@ -328,7 +330,8 @@
           "additionalProperties": {
             "type": "number"
           },
-          "order": 21
+          "description": "%cfg.modelContextWindows%",
+          "order": 20.5
         },
         "9router-for-github-copilot.inlineCompletionMaxSuffixChars": {
           "type": "number",
@@ -374,8 +377,13 @@
             "verbose"
           ],
           "default": "off",
-          "order": 50,
-          "description": "%cfg.debugMode%"
+          "order": 10.5,
+          "description": "%cfg.debugMode%",
+          "enumDescriptions": [
+            "%cfg.debugMode.off%",
+            "%cfg.debugMode.metadata%",
+            "%cfg.debugMode.verbose%"
+          ]
         }
       }
     }

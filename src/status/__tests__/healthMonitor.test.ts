@@ -89,3 +89,31 @@ describe('HealthMonitor', () => {
     m.start();
   });
 });
+
+describe('reportRequestError', () => {
+  const onlyState = (msg: string) => {
+    const { m } = make([target('p', 200)]);
+    m.reportRequestError('p', msg);
+    return m.getState('p');
+  };
+  test('classifies by what the failure says, not "every error = offline"', () => {
+    assert.equal(onlyState('Chat completion failed: 400 - bad request'), 'online');
+    assert.equal(onlyState('Chat completion failed: 401 - invalid api key'), 'auth');
+    assert.equal(onlyState('Chat completion failed: 429 - rate limited'), 'degraded');
+    assert.equal(onlyState('Chat completion failed: 503 - overloaded'), 'degraded');
+    assert.equal(onlyState('fetch failed'), 'offline');
+    assert.equal(onlyState('connect ECONNREFUSED 127.0.0.1:20128'), 'offline');
+  });
+  test('numbers elsewhere in the message (token counts, ports) are never read as a status', () => {
+    assert.equal(onlyState("Chat completion failed: 400 Bad Request - This model's maximum context length is 1048576 tokens; you sent 1200000 tokens"), 'online');
+    assert.equal(onlyState('Chat completion request failed: fetch failed (port 20128, 443452 tokens)'), 'offline');
+    assert.equal(onlyState('request took 503000 ms'), 'offline');
+  });
+  test('a successful request after a degraded state flips back to online', () => {
+    const { m } = make([target('p', 200)]);
+    m.reportRequestError('p', 'Chat completion failed: 429 - slow down');
+    assert.equal(m.getState('p'), 'degraded');
+    m.reportRequest('p', true);
+    assert.equal(m.getState('p'), 'online');
+  });
+});

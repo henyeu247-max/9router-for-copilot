@@ -16,7 +16,7 @@
   "cfg.serverUrl": "URL máy chủ suy luận (endpoint tương thích OpenAI API).",
   "cfg.apiKey": "Đã lỗi thời. Dùng lệnh 'Quản lý nhà cung cấp' để lưu khóa API vào kho bí mật của VS Code.",
   "cfg.requestTimeout": "Thời gian chờ request (mili giây).",
-  "cfg.defaultMaxTokens": "Kích thước context dự phòng (token đầu vào) khi máy chủ không báo.",
+  "cfg.defaultMaxTokens": "TỔNG cửa sổ context dự phòng (token vào + ra) cho model mà máy chủ không báo.",
   "cfg.defaultMaxOutputTokens": "Số token đầu ra tối đa giả định CHỈ cho model mà máy chủ không khai báo giới hạn output (max_completion_tokens / capabilities.maxOutput). Giới hạn được khai báo luôn ưu tiên; output bị chặn ở tối đa một nửa cửa sổ context.",
   "cfg.enableImageInput": "Bật khả năng nhận ảnh cho các model hỗ trợ đa phương thức.",
   "cfg.visionProxyEnabled": "Thử nghiệm. Với model mà máy chủ báo rõ là không có vision, mô tả ảnh đính kèm bằng một model có vision (thêm một request, có thể dùng model trả phí) rồi gửi mô tả dạng văn bản. Không có tác dụng nếu máy chủ không báo hỗ trợ vision.",
@@ -26,7 +26,7 @@
   "cfg.enableToolCalling": "Bật khả năng gọi tool cho model.",
   "cfg.parallelToolCalling": "Cho phép model gọi nhiều tool song song (tắt nếu model lỗi khi gọi song song).",
   "cfg.agentTemperature": "Temperature dự phòng cho chế độ agent/gọi tool (thấp hơn = định dạng ổn định hơn).",
-  "cfg.verboseLogging": "Đã lỗi thời. Dùng 'debugMode'. Bật = tương đương debugMode 'verbose'.",
+  "cfg.verboseLogging": "Đã lỗi thời - dùng \"debugMode\". true được coi là debugMode \"verbose\".",
   "cfg.customHeaders": "Đã lỗi thời. Dùng lệnh 'Sửa custom header' để lưu header vào kho bí mật của VS Code.",
   "cfg.extraModelOptions": "Tham số thêm gộp vào body request chat-completions (vd top_k, repetition_penalty).",
   "cfg.perModelOptions": "Tham số chat-completion theo từng model, khóa theo id model. Gộp lên trên 'extraModelOptions'.",
@@ -42,5 +42,11 @@
   "cfg.dashboardOpen": "Nơi mở dashboard 9Router: trình duyệt hoặc tab VS Code (cần gateway cho phép nhúng).",
   "cfg.dashboardUrl": "URL dashboard. Để trống = gốc máy chủ của hồ sơ mặc định (URL không có /v1).",
   "cfg.debugMode": "Gỡ lỗi request. off = tắt; metadata = chỉ ghi kích thước/vai trò; verbose = ghi toàn bộ request dump (khóa API luôn được che) vào thư mục lưu trữ của tiện ích.",
-  "cmd.showPanel": "Mở bảng điều khiển 9Router"
+  "cmd.showPanel": "Mở bảng điều khiển 9Router",
+  "cfg.enableInlineCompletion": "Thử nghiệm: gợi ý inline (chữ mờ) từ model của gateway. Mặc định tắt vì mỗi lần dừng gõ sẽ gửi một request.",
+  "cfg.modelContextWindows": "Ghim TỔNG cửa sổ context (token vào + ra) cho từng model, ví dụ {\"gc/*\": 1000000}. Khóa khớp đúng id model hoặc dùng ký tự *; id chính xác được ưu tiên. Ghi đè giá trị máy chủ báo.",
+  "cfg.debugMode.off": "Không ghi thêm log (mặc định). Mỗi request một dòng tóm tắt.",
+  "cfg.debugMode.metadata": "Ghi thêm từng tool và từng message (tên, kích thước, vai trò) vào Output log.",
+  "cfg.debugMode.verbose": "Ghi thêm toàn bộ request dump (đã che khóa API) vào thư mục lưu trữ của tiện ích.",
+  "cfg.verboseLogging.deprecated": "Đã lỗi thời - hãy dùng \"9router-for-github-copilot.debugMode\"."
 }
