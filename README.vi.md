@@ -65,7 +65,7 @@ Tiền tố: `9router-for-github-copilot.`
 | `enableImageInput` | `true` | Cho phép đính kèm ảnh |
 | `visionProxyEnabled` / `visionProxyModel` | `false` / trống | Mô tả ảnh cho model không có vision (thêm một request, có thể dùng model trả phí) |
 | `encodeSlashInModelId` | `false` | Hiện `/` trong id model thành `::` (đổi sẽ đặt lại model đã chọn) |
-| `requestTimeout` | `60000` | Thời gian chờ request chat (ms) |
+| `requestTimeout` | `300000` | Thời gian chờ request chat (ms): chờ byte đầu tiên và khoảng im lặng tối đa trong một luồng. Log ghi rõ nguyên nhân khi timeout |
 | `customHeaders` / `extraModelOptions` | `{}` | Header HTTP thêm / tham số body thêm cho mọi request |
 | `probeThinkingLevels` | `true` | Hỏi CLIProxyAPI mức thinking của từng model (xem trên); chỉ dùng với CLIProxyAPI |
 | `enableInlineCompletion` | `false` | Gợi ý chữ mờ thử nghiệm (xem bên dưới) |

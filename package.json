@@ -162,7 +162,7 @@
         },
         "9router-for-github-copilot.requestTimeout": {
           "type": "number",
-          "default": 60000,
+          "default": 300000,
           "description": "%cfg.requestTimeout%",
           "order": 3
         },

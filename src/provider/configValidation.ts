@@ -1,7 +1,8 @@
 import { GatewayConfig } from '../config/gatewayConfig';
 import { TOKEN_CONSTANTS } from '../chat/tokenBudget';
 
-export const DEFAULT_REQUEST_TIMEOUT_MS = 60000;
+/** 5 min: a 350k-token context with high thinking can be silent for well over a minute. */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 300000;
 /** Maximum value for setTimeout (signed 32-bit integer). */
 export const MAX_REQUEST_TIMEOUT_MS = 2147483647;
 export const FALLBACK_SERVER_URL = 'http://localhost:20128/v1';

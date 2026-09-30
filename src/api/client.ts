@@ -1,6 +1,7 @@
 import { PROBE_LEVEL, classifyProbe, type ProbeOutcome } from '../models/thinkingProbe';
 import { ANTHROPIC_VERSION_HEADER } from '../models/anthropicListing';
 import * as vscode from 'vscode';
+import { describeStreamAbort, type StreamAbortCause } from './streamAbort';
 import { fetchWithRateLimitRetry } from './rateLimitRetry';
 import { buildDescribeRequest, extractCompletionText } from '../chat/visionProxy';
 import {
@@ -136,6 +137,8 @@ const ERROR_PREFIX = 'Inference server reported an error mid-stream: ';
  */
 interface StreamTimers {
   readonly controller: AbortController;
+  /** Why the request was aborted (undefined while it has not been). */
+  readonly abortCause: () => StreamAbortCause | undefined;
   readonly resetInactivity: () => void;
   /** Called once response headers arrive — switches to the inactivity timer. */
   readonly onHeadersReceived: () => void;
@@ -378,6 +381,10 @@ export class GatewayClient {
       if (error instanceof ChatHttpError) {
         throw error;
       }
+      const cause = timers.abortCause();
+      if (cause) {
+        throw new Error(`Chat completion request failed: ${describeStreamAbort(cause, this.config.requestTimeout)}`);
+      }
       if (error instanceof Error) {
         throw new Error(`Chat completion request failed: ${describeFetchError(error)}`);
       }
@@ -433,15 +440,21 @@ export class GatewayClient {
    */
   private createStreamTimers(cancellationToken: vscode.CancellationToken): StreamTimers {
     const controller = new AbortController();
-    const cancelSub = cancellationToken.onCancellationRequested(() => controller.abort());
-    const headerTimeoutId = setTimeout(() => controller.abort(), this.config.requestTimeout);
+    let cause: StreamAbortCause | undefined;
+    const abortWith = (why: StreamAbortCause): void => {
+      cause ??= why; // the first reason wins
+      controller.abort();
+    };
+    const cancelSub = cancellationToken.onCancellationRequested(() => abortWith('cancelled'));
+    const headerTimeoutId = setTimeout(() => abortWith('no-response'), this.config.requestTimeout);
     let inactivityTimeoutId: ReturnType<typeof setTimeout> | undefined;
     const resetInactivity = (): void => {
       if (inactivityTimeoutId) { clearTimeout(inactivityTimeoutId); }
-      inactivityTimeoutId = setTimeout(() => controller.abort(), this.config.requestTimeout);
+      inactivityTimeoutId = setTimeout(() => abortWith('silent'), this.config.requestTimeout);
     };
     return {
       controller,
+      abortCause: () => cause,
       resetInactivity,
       onHeadersReceived: () => {
         clearTimeout(headerTimeoutId);

@@ -65,7 +65,7 @@ Prefix: `9router-for-github-copilot.`
 | `enableImageInput` | `true` | Allow image attachments |
 | `visionProxyEnabled` / `visionProxyModel` | `false` / empty | Describe images for non-vision models (extra request; may use a paid model) |
 | `encodeSlashInModelId` | `false` | Show `/` in model ids as `::` (resets saved model choice when changed) |
-| `requestTimeout` | `60000` | Chat request timeout (ms) |
+| `requestTimeout` | `300000` | Chat request timeout (ms): how long to wait for the first byte, and the longest silence allowed inside a stream. The log names the cause when it fires |
 | `customHeaders` / `extraModelOptions` | `{}` | Extra HTTP headers / extra body parameters for every request |
 | `probeThinkingLevels` | `true` | Ask CLIProxyAPI which thinking levels each model accepts (see above); CLIProxyAPI only |
 | `enableInlineCompletion` | `false` | Experimental ghost-text completions (see below) |

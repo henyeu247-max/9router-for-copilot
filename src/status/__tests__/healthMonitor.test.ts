@@ -117,3 +117,14 @@ describe('reportRequestError', () => {
     assert.equal(m.getState('p'), 'online');
   });
 });
+
+describe('reportRequestError: a slow answer is not an outage', () => {
+  test('waiting-for-first-byte and silent-stream timeouts are degraded, not offline', () => {
+    const { m } = make([target('p', 200)]);
+    m.reportRequestError('p', 'Chat completion request failed: No response from the gateway within 300s (waiting for the first byte).');
+    assert.equal(m.getState('p'), 'degraded');
+    m.reportRequest('p', true);
+    m.reportRequestError('p', 'Chat completion request failed: The stream went silent: no data for 300s.');
+    assert.equal(m.getState('p'), 'degraded');
+  });
+});

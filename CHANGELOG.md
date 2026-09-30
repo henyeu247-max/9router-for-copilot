@@ -23,6 +23,16 @@
 - **Real limits instead of 262144 / 4096 on CLIProxyAPI.** The same `/v1/models` asked with an `anthropic-version` header returns `max_input_tokens` and `max_tokens` for every model (non-Claude ids are cloaked as `claude-fable-5-dd-<reversed id>`; decoded exactly as CLIProxyAPI's `ResolveClaudeModelIDPrefix` does). Requested once (cached 5 min, silent on failure) and ONLY when some model lacks a context window, so 9Router costs no extra request; server-reported values are never overwritten and `modelContextWindows` still wins. Live check through the real client and catalog: 33/33 picker models match the API numbers. The window is treated as total (input + output): exact for Claude, on the safe side for GPT/Gemini.
 - README documents the fallbacks such gateways get and how to tune them. Known: the gateway also lists models its upstream has retired (404/503 for 5 Claude ids); use `modelFilter`.
 
+### Fixed ("Recovered from a request error" every now and then)
+
+- Log evidence (VS Code session on 9Router, `ag/gemini-3.8-flash`, ~1000 messages / ~350k tokens, thinking `high`): 7 of 67 requests ended
+  with the bare text `This operation was aborted`, and every one was re-sent identically by VS Code straight away (that is the "Recovered" toast). Six of the
+  seven logged no data at all between the request and the abort. A user pressing stop would not be retried.
+- Most likely cause (not proven from the log alone, which has no timestamps): `requestTimeout` defaulted to 60 s, both for the first byte and for the longest
+  silence inside a stream, which is short for a very large context with high thinking. The default is now 300 s (an explicit setting is untouched).
+- The abort now names its cause, so the next occurrence is decidable: `No response from the gateway within Ns (waiting for the first byte)`, `The stream went silent:
+  no data for Ns`, or `Request cancelled (stopped from VS Code)`. The first two mark the gateway `degraded` (slow), not `offline`.
+
 ### Fixed (chat stuck on HTTP 400 `INVALID_ARGUMENT`)
 - **Duplicate tool-call ids.** A gateway can reuse a short id (`call_149461`) for two different tool calls in one chat. VS Code keeps the history, so every later request carried the same id twice and strict upstreams (Gemini) rejected all of them - the chat could never recover. Ids are now made unique before sending (first use keeps its id, later reuses get `..._dupN`, results are re-pointed; unique histories are untouched). Evidence from a real session log: 12/12 failing requests contained such a pair, 268/268 requests without one succeeded; on the real transcript the fix removes both duplicate ids and keeps call/result pairing. Existing chats recover on the next message because the history is re-sent each time. Not replayed against the live upstream (needs a key).
 

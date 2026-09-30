@@ -14,6 +14,8 @@
  * degraded = gateway is up but erroring (5xx / 429)
  * offline  = no answer (network error / timeout)
  */
+import { NO_RESPONSE_MESSAGE, SILENT_STREAM_MESSAGE } from '../api/streamAbort';
+
 export type HealthStatus = 'online' | 'auth' | 'degraded' | 'offline' | 'checking';
 
 /** Classify an HTTP status from the probe. `undefined` = no answer at all. */
@@ -88,6 +90,10 @@ export class HealthMonitor {
    */
   reportRequestError(profileId: string, errorMessage: string): void {
     const m = /(?:failed|returned|HTTP)[: ]+(\d{3})\b/i.exec(errorMessage);
+    if (!m && (errorMessage.includes(NO_RESPONSE_MESSAGE) || errorMessage.includes(SILENT_STREAM_MESSAGE))) {
+      this.set(profileId, 'degraded'); // it answers, just slowly: not offline
+      return;
+    }
     this.set(profileId, classifyHttpStatus(m ? Number(m[1]) : undefined));
   }
 
