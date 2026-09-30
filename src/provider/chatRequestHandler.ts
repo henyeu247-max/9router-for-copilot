@@ -35,6 +35,7 @@ import { friendlyModelName } from '../models/modelDisplay';
 import { TokenUsage } from '../status/sessionStats';
 import { ModelCatalog } from './modelCatalog';
 import { convertAllMessages } from './vscodeParts';
+import { dedupeToolCallIds } from '../chat/toolCallIds';
 import { handleChatError } from './notifications';
 
 const DEFAULT_TEMPERATURE = 0.7;
@@ -165,6 +166,13 @@ export class ChatRequestHandler {
 
     const config = this.deps.getConfig();
     let openAIMessages = convertAllMessages(messages, config.enableImageInput, log);
+    // Reused tool-call ids (a gateway quirk stored forever in the chat history) make strict
+    // upstreams such as Gemini answer 400 INVALID_ARGUMENT on every later request.
+    const deduped = dedupeToolCallIds(openAIMessages);
+    if (deduped.renamed > 0) {
+      log(`Renamed ${deduped.renamed} duplicate tool-call id(s) so the upstream accepts the history.`);
+    }
+    openAIMessages = deduped.messages;
     openAIMessages = await this.applyVisionProxy(openAIMessages, model, config, token);
     log(`Converted to ${openAIMessages.length} OpenAI messages`);
     // Per-message / per-tool lines are O(history): only with debugMode != off.
