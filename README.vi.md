@@ -34,7 +34,7 @@ Dùng model của **9Router** (và mọi gateway tương thích OpenAI) ngay tro
 
 **Model**
 - Danh mục đọc từ `/v1/models` (`capabilities`, `context_length`, `max_completion_tokens`).
-- Bộ chọn **Thinking effort** (menu con trong bộ chọn model) dựng từ các mức gateway công bố (`capabilities.thinkingRange`), thêm `max` cho Claude adaptive và `cx/gpt-6*`. Không chọn sẵn mức nào: cho tới khi anh chọn (hoặc đặt `reasoningEffort` trong `perModelOptions`/`extraModelOptions`) thì không gửi `reasoning_effort`. Model có tier trong id (`...-high`, `...-none`) và model mà gateway bỏ qua mức (MiniMax) không hiện bộ chọn. Không có tùy chọn tắt hẳn thinking.
+- Bộ chọn **Thinking effort** (menu con trong bộ chọn model) dựng đúng theo các mức gateway công bố (`capabilities.thinkingRange`), không thêm mức nào; bảng theo format có sẵn chỉ dùng khi gateway không công bố danh sách. Muốn gửi mức mà gateway không quảng bá (ví dụ `max` cho model Claude) thì đặt trong `perModelOptions`. Không chọn sẵn mức nào: cho tới khi anh chọn (hoặc đặt `reasoningEffort` trong `perModelOptions`/`extraModelOptions`) thì không gửi `reasoning_effort`. Model có tier trong id (`...-high`, `...-none`) và model mà gateway bỏ qua mức (MiniMax) không hiện bộ chọn. Không có tùy chọn tắt hẳn thinking.
 - `modelFilter` (regex/chuỗi con), `modelContextWindows`, `perModelOptions`.
 - **Vision proxy** tùy chọn cho model không có vision; mã hóa id `::` tùy chọn.
 - Inline completion (ghost-text) thử nghiệm qua `/v1/completions`.

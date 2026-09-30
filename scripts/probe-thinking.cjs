@@ -7,8 +7,9 @@
  * For each selected model it sends one tiny request per advertised level (thinkingRange) plus a
  * no-effort baseline, and prints HTTP status, whether reasoning text came back, and any error.
  * Defaults to one cheap, non-combo, no-tier-in-id model per thinking format.
- * --try adds extra levels to test beyond the gateway's list (its list is a per-format default; the
- *   extension also offers `max` for claude-adaptive and cx/gpt-6*, e.g. --models cc/claude-opus-5,cx/gpt-6.1-sol --try max).
+ * --try adds levels to test beyond the gateway's published list, e.g.
+ *   --models cc/claude-opus-5,cx/gpt-6.1-sol --try max. The extension only offers published levels; a level
+ *   that passes here can be sent through the `perModelOptions` setting.
  * --control also sends the level "bogus" to show whether the gateway validates levels at all.
  * Costs a few hundred tokens per call. The key is read from the environment only and never printed.
  */

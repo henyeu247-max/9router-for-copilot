@@ -739,34 +739,31 @@ describe('thinking effort follows what the server publishes (thinkingRange)', ()
     assert.equal(p?.default, undefined);
   });
 
-  test('claude-adaptive: the gateway list (low|medium|high) is a floor - max is added, xhigh is not (folded into high)', () => {
+  test('claude-adaptive: exactly what the gateway publishes - nothing is added (no hard-coded max)', () => {
     const p = build('lenec.tech/claude-sonnet-5', { thinkingFormat: 'claude-adaptive', thinkingRange: ['low', 'medium', 'high'] });
-    assert.deepEqual(p?.enum, ['low', 'medium', 'high', 'max']);
+    assert.deepEqual(p?.enum, ['low', 'medium', 'high']);
     assert.equal(p?.default, undefined);
   });
 
-  test('claude-adaptive without any list gets the same levels from the fallback table', () => {
+  test('the built-in per-format table is used ONLY when the gateway publishes no list', () => {
     assert.deepEqual(build('x/claude-opus-5', { thinkingFormat: 'claude-adaptive' })?.enum, ['low', 'medium', 'high', 'max']);
+    assert.deepEqual(build('x/claude-opus-5', { thinkingFormat: 'claude-adaptive', thinkingRange: null })?.enum, ['low', 'medium', 'high', 'max']);
+    // ...and never once a list exists, even a short one
+    assert.deepEqual(build('x/claude-opus-5', { thinkingFormat: 'claude-adaptive', thinkingRange: ['low'] })?.enum, ['low']);
   });
 
-  test('max is added exactly once when the server already lists it', () => {
-    const p = build('x/claude-opus-5', { thinkingFormat: 'claude-adaptive', thinkingRange: ['low', 'high', 'max'] });
-    assert.deepEqual(p?.enum, ['low', 'high', 'max']);
-  });
-
-  test('cx/gpt-6.1-sol gets max; the same model behind another provider prefix does not', () => {
+  test('a gateway list is offered as published for every provider prefix (cx/ included)', () => {
     const range = ['minimal', 'low', 'medium', 'high', 'xhigh'];
-    assert.deepEqual(build('cx/gpt-6.1-sol', { thinkingFormat: 'openai', thinkingRange: range })?.enum, [...range, 'max']);
-    assert.deepEqual(build('cx/gpt-6-sol', { thinkingFormat: 'openai', thinkingRange: range })?.enum, [...range, 'max']);
-    assert.deepEqual(build('cl/openai/gpt-6.1-sol', { thinkingFormat: 'openai', thinkingRange: range })?.enum, range);
-    assert.deepEqual(build('cx/gpt-5.6-sol', { thinkingFormat: 'openai', thinkingRange: range })?.enum, range);
+    for (const id of ['cx/gpt-6.1-sol', 'cx/gpt-6-sol', 'cl/openai/gpt-6.1-sol', 'cx/gpt-5.6-sol']) {
+      assert.deepEqual(build(id, { thinkingFormat: 'openai', thinkingRange: range })?.enum, range, id);
+    }
   });
 
-  test('an explicit capabilities.reasoningEffort list is authoritative and gets no extras', () => {
+  test('an explicit capabilities.reasoningEffort list is authoritative', () => {
     assert.deepEqual(build('x/claude-opus-5', { thinkingFormat: 'claude-adaptive', reasoningEffort: ['low', 'high'] })?.enum, ['low', 'high']);
   });
 
-  test('a list with nothing sendable still means no picker (extras never resurrect it)', () => {
+  test('a list with nothing sendable means no picker (the table does not resurrect it)', () => {
     assert.equal(build('x/claude-opus-5', { thinkingFormat: 'claude-adaptive', thinkingRange: ['none'] }), undefined);
   });
 
@@ -838,5 +835,46 @@ describe('effort level ordering invariants', () => {
       capabilities: {},
     }).info.configurationSchema?.properties.reasoningEffort;
     assert.deepEqual(p?.enum, ['low', 'high', 'max']);
+  });
+});
+
+describe('API first, built-in values only when the API is silent (context / output)', () => {
+  const build = (row: Record<string, unknown>, over?: number) =>
+    buildModelInfo({
+      model: { id: 'x/m', object: 'model', created: 0, owned_by: 't', ...row } as OpenAIModel,
+      defaultMaxTokens: 262144,
+      defaultMaxOutputTokens: 4096,
+      capabilities: {},
+      ...(over !== undefined ? { contextOverride: over } : {}),
+    });
+  const total = (r: ReturnType<typeof build>) => r.info.maxInputTokens + r.info.maxOutputTokens;
+
+  test('window: user override > every API field > defaultMaxTokens', () => {
+    assert.equal(total(build({})), 262144, 'silent API -> fallback');
+    assert.equal(total(build({ context_length: 32768 })), 32768);
+    assert.equal(total(build({ max_model_len: 16384 })), 16384);
+    assert.equal(total(build({ capabilities: { contextWindow: 1000000 } })), 1000000);
+    assert.equal(total(build({ meta: { n_ctx: 8192 } })), 8192);
+    assert.equal(total(build({ context_length: 32768 }, 9999)), 9999, 'user setting wins over the API');
+  });
+
+  test('a real API window is never replaced by the fallback, whatever its size', () => {
+    for (const w of [2048, 4096, 32768, 200000, 262144, 272000, 1000000, 1048576, 2097152]) {
+      assert.equal(total(build({ context_length: w })), w, String(w));
+    }
+  });
+
+  test('output: the API limit is used as declared; the setting only when the API declares none', () => {
+    assert.equal(build({ context_length: 200000 }).info.maxOutputTokens, 4096, 'silent -> setting');
+    assert.equal(build({ context_length: 200000, max_completion_tokens: 64000 }).info.maxOutputTokens, 64000);
+    assert.equal(build({ context_length: 200000, capabilities: { maxOutput: 32000 } }).info.maxOutputTokens, 32000);
+    assert.equal(build({ context_length: 1000000, max_completion_tokens: 128000 }).info.maxOutputTokens, 128000);
+  });
+
+  test('the ONLY change made to a declared output is the cap at half of the window (keeps room for input)', () => {
+    assert.equal(build({ context_length: 500000, max_completion_tokens: 500000 }).info.maxOutputTokens, 250000);
+    assert.equal(build({ context_length: 200000, max_completion_tokens: 131072 }).info.maxOutputTokens, 100000);
+    assert.equal(build({ context_length: 200000, max_completion_tokens: 100000 }).info.maxOutputTokens, 100000, 'exactly half is untouched');
+    assert.equal(build({ context_length: 200000, max_completion_tokens: 99999 }).info.maxOutputTokens, 99999);
   });
 });

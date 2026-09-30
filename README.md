@@ -34,7 +34,7 @@ Use **9Router** (and any OpenAI-compatible gateway) models inside GitHub Copilot
 
 **Models**
 - Catalog read from `/v1/models` (`capabilities`, `context_length`, `max_completion_tokens`).
-- **Thinking effort** picker (model picker -> gear/sub-menu) built from the levels your gateway publishes (`capabilities.thinkingRange`), plus `max` for Claude adaptive and `cx/gpt-6*`. Nothing is pre-selected: until you pick a level (or set `reasoningEffort` in `perModelOptions`/`extraModelOptions`) no `reasoning_effort` is sent. Models whose id already carries the tier (`...-high`, `...-none`) and models where the gateway ignores the level (MiniMax) show no picker. Turning thinking fully off is not offered.
+- **Thinking effort** picker (model picker -> gear/sub-menu) built from exactly the levels your gateway publishes (`capabilities.thinkingRange`); nothing is added on top, and a built-in per-format table is used only when the gateway publishes no list. To send a level the gateway does not advertise (e.g. `max` on a Claude model), set it in `perModelOptions`. Nothing is pre-selected: until you pick a level (or set `reasoningEffort` in `perModelOptions`/`extraModelOptions`) no `reasoning_effort` is sent. Models whose id already carries the tier (`...-high`, `...-none`) and models where the gateway ignores the level (MiniMax) show no picker. Turning thinking fully off is not offered.
 - `modelFilter` (regex/substring), `modelContextWindows`, `perModelOptions`.
 - Optional **vision proxy** for non-vision models, optional `::` model-id encoding.
 - Experimental inline (ghost-text) completions through `/v1/completions`.
