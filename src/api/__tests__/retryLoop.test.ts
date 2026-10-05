@@ -86,6 +86,58 @@ describe('runWithRecovery', () => {
   });
 });
 
+describe('runWithRecovery: upstream EOF', () => {
+  const eof = () => new Error('Chat completion request failed: Inference server reported an error mid-stream: unexpected EOF');
+
+  test('retries once before output without degrading the request', async () => {
+    const h = harness([eof(), 'ok']);
+    await h.run();
+    assert.equal(h.calls(), 2);
+    assert.deepEqual([...h.degraded], []);
+    assert.equal(h.logs.length, 1);
+  });
+  test('surfaces the last EOF after one retry even if other recovery hooks return true', async () => {
+    const last = eof();
+    const h = harness([eof(), last, 'ok'], { overflow: true, outputLimit: true, temperature: true });
+    await assert.rejects(h.run(), (error) => error === last);
+    assert.equal(h.calls(), 2);
+  });
+  test('never retries EOF after output', async () => {
+    const e = eof();
+    const h = harness([e, 'ok'], { reported: true });
+    await assert.rejects(h.run(), (error) => error === e);
+    assert.equal(h.calls(), 1);
+  });
+  test('never retries EOF after cancellation', async () => {
+    const e = eof();
+    const h = harness([e, 'ok'], { cancelled: true });
+    await assert.rejects(h.run(), (error) => error === e);
+    assert.equal(h.calls(), 1);
+  });
+  test('checks output again when the retry fails', async () => {
+    let calls = 0;
+    const last = eof();
+    await assert.rejects(runWithRecovery({
+      attempt: async () => { calls++; throw calls === 1 ? eof() : last; },
+      partsReported: () => calls > 1,
+      isCancelled: () => false,
+      learnFromOverflow: () => false,
+      lastRequest: () => ({ hasReasoning: true, hasTools: true }),
+      degraded: new Set(),
+      log: () => {},
+    }), (error) => error === last);
+    assert.equal(calls, 2);
+  });
+  test('does not retry unrelated inline errors or arbitrary EOF messages', async () => {
+    for (const message of ['unexpected EOF', 'Inference server reported an error mid-stream: quota exceeded']) {
+      const e = new Error(message);
+      const h = harness([e, 'ok']);
+      await assert.rejects(h.run(), (error) => error === e);
+      assert.equal(h.calls(), 1);
+    }
+  });
+});
+
 describe('runWithRecovery: max_tokens too large', () => {
   test('retries once with a smaller max_tokens when a limit was learned, then succeeds', async () => {
     const h = harness([err400('max_tokens is too large: 32000. This model supports at most 4096 completion tokens'), 'ok'], { outputLimit: true });

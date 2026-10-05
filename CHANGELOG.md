@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Fixed
+- Recover an upstream SSE `unexpected EOF` once before any response part is reported, without replaying partial text or tool calls or degrading request options.
 - Preserve the resolved chat temperature instead of letting Copilot's caller options overwrite it. Reasoning-model requests default to temperature 1 unless explicitly configured otherwise; learned upstream constraints take precedence.
 - Retry a temperature rejection once with a learned fixed value or with the temperature field omitted. Temperature, context and output-limit errors no longer trigger unrelated reasoning/tool degradation.
 - Isolate failures of individual background thinking-level probes so remaining models can still be probed.

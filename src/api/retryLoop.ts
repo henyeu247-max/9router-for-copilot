@@ -5,7 +5,8 @@ import { pickDegradeStep, type DegradeStep } from './degrade';
  * tested without VS Code. `attempt` runs the whole request; `describe` reports
  * what the last request contained so we never propose stripping something absent.
  *
- * Guarantees: bounded (<= 1 overflow retry + 1 output-limit retry + 1 retry per DegradeStep), never retries
+ * Guarantees: bounded (one retry each for EOF, overflow, output limit and temperature,
+ * plus one retry per DegradeStep), never retries
  * after output was streamed or after cancellation, and rethrows the ORIGINAL error
  * when no recovery applies.
  */
@@ -31,12 +32,19 @@ export async function runWithRecovery(deps: RetryDeps): Promise<void> {
   let overflowRetried = false;
   let outputLimitRetried = false;
   let temperatureRetried = false;
+  let eofRetried = false;
   for (;;) {
     try {
       await deps.attempt();
       return;
     } catch (error) {
       if (deps.partsReported() || deps.isCancelled()) { throw error; }
+      if (error instanceof Error && /Inference server reported an error mid-stream: unexpected EOF\s*$/i.test(error.message)) {
+        if (eofRetried) { throw error; }
+        eofRetried = true;
+        deps.log('Upstream stream ended unexpectedly before output; retrying chat request once...');
+        continue;
+      }
       if (!overflowRetried && deps.learnFromOverflow(error)) {
         overflowRetried = true;
         deps.log('Retrying chat request with corrected context size...');

@@ -26,6 +26,7 @@ Dùng model của **9Router** (và mọi gateway tương thích OpenAI) ngay tro
 - Reasoning gom thành **một** khối thinking mỗi lượt (hết cảnh "Finished with N steps").
 - Host nghiêm ngặt: tên/id tool dài hơn 64 ký tự được rút gọn khi gửi và ánh xạ ngược lại (chế độ Agent vẫn chạy).
 - **429/503** → thử lại theo `Retry-After` / backoff lũy thừa.
+- **Lỗi SSE upstream `unexpected EOF`** → thử lại đúng một lần khi chưa phát bất kỳ phần trả lời nào. Nếu đã phát text, reasoning hoặc tool call, báo lỗi và không gửi lại request.
 - **HTTP 400** → thử lại một lần không có `reasoning_effort`; chỉ bỏ tools khi thông báo lỗi nói tools không được hỗ trợ. Không bao giờ thử lại sau khi đã hiện kết quả.
 - **Widget Context Window / compact** theo đúng công thức của VS Code (`maxInput + maxOutput` = cửa sổ thật); usage lấy từ gateway, hoặc tự ước lượng khi gateway không gửi.
 - **Giới hạn output** lấy từ máy chủ (`max_completion_tokens` / `capabilities.maxOutput`, tối đa một nửa cửa sổ); `defaultMaxOutputTokens` chỉ áp cho model không khai báo. Lỗi `max_tokens too large` giúp học giới hạn thật và thử lại một lần.

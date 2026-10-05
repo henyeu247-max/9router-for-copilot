@@ -26,6 +26,7 @@ Use **9Router** (and any OpenAI-compatible gateway) models inside GitHub Copilot
 - Reasoning is buffered into **one** thinking block per turn (no "Finished with N steps" spam).
 - Strict hosts: tool names/ids over 64 chars are shortened on the wire and mapped back (Agent mode keeps working).
 - **429/503** → retry with `Retry-After` / exponential backoff.
+- **Upstream `unexpected EOF` SSE error** → retry once only before any response part is reported. After text, reasoning or tool output, surface the error without replaying the request.
 - **HTTP 400** → retry once without `reasoning_effort`; tools are dropped only when the error message says tools are unsupported. Never after output was shown.
 - **Context Window widget / compaction** follow VS Code's own maths (`maxInput + maxOutput` = real window); token usage is forwarded from the gateway, or estimated when the gateway sends none.
 - **Output limit** comes from the server (`max_completion_tokens` / `capabilities.maxOutput`, capped at half the window); `defaultMaxOutputTokens` only applies to models that declare none. A `max_tokens too large` error teaches the real ceiling and the request is retried once.
