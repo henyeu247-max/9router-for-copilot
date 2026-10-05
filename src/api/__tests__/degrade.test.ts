@@ -43,6 +43,18 @@ describe('pickDegradeStep', () => {
     assert.equal(httpStatusOf(err), 400);
     assert.equal(pickDegradeStep(err, st()), 'reasoning');
   });
+  test('temperature errors do not strip reasoning or tools', () => {
+    const err = e('Chat completion failed: 400 - {"error":{"message":"field Temperature invalid, only 1 is allowed for this model","param":"temperature"}}');
+    assert.equal(pickDegradeStep(err, st()), undefined);
+  });
+  test('output-limit errors do not strip reasoning or tools', () => {
+    const err = e('Chat completion failed: 400 - max_tokens is too large: 32000. This model supports at most 4096 completion tokens');
+    assert.equal(pickDegradeStep(err, st()), undefined);
+  });
+  test('context-overflow errors do not strip reasoning or tools', () => {
+    const err = e('Chat completion failed: 400 - maximum context length is 4096 tokens');
+    assert.equal(pickDegradeStep(err, st()), undefined);
+  });
   test('never proposes a step that has nothing to strip', () => {
     const err = e('Chat completion failed: 400 - tools are not supported');
     assert.equal(pickDegradeStep(err, st({ hasReasoning: false })), 'tools');

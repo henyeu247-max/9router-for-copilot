@@ -400,6 +400,39 @@ describe('ModelCatalog.learnOutputLimitFromError', () => {
   });
 });
 
+describe('ModelCatalog.learnTemperatureFromError', () => {
+  const info = (id = 'a') => ({ id, maxInputTokens: 1000, maxOutputTokens: 1000 }) as unknown as LanguageModelChatInformation;
+  test('learns fixed temperature requirement from Kimi K3 error', () => {
+    const h = makeCatalog({ fetchModels: () => Promise.resolve(modelsResponse()) });
+    const err = new Error('Chat completion failed: 400 - {"error":{"message":"field Temperature invalid, only 1 is allowed for this model","param":"temperature"}}');
+    assert.equal(h.catalog.learnTemperatureFromError(info('k3'), err), true);
+    assert.deepEqual(h.catalog.getLearnedTemperature('k3'), { kind: 'fixed', value: 1 });
+    // Same adjustment again is not "new"
+    assert.equal(h.catalog.learnTemperatureFromError(info('k3'), err), false);
+  });
+
+  test('learns omit temperature requirement from unsupported parameter error', () => {
+    const h = makeCatalog({ fetchModels: () => Promise.resolve(modelsResponse()) });
+    const err = new Error("Chat completion failed: 400 - Unsupported parameter: 'temperature' is not supported with this model.");
+    assert.equal(h.catalog.learnTemperatureFromError(info('o1'), err), true);
+    assert.deepEqual(h.catalog.getLearnedTemperature('o1'), { kind: 'omit' });
+  });
+
+  test('ignores unrelated errors', () => {
+    const h = makeCatalog({ fetchModels: () => Promise.resolve(modelsResponse()) });
+    assert.equal(h.catalog.learnTemperatureFromError(info('a'), new Error('boom')), false);
+    assert.equal(h.catalog.getLearnedTemperature('a'), undefined);
+  });
+
+  test('learned temperature settings are cleared on config reload', () => {
+    const h = makeCatalog({ fetchModels: () => Promise.resolve(modelsResponse()) });
+    h.catalog.learnTemperatureFromError(info('k3'), new Error('field Temperature invalid, only 1 is allowed for this model'));
+    assert.deepEqual(h.catalog.getLearnedTemperature('k3'), { kind: 'fixed', value: 1 });
+    h.catalog.clearLearnedContexts();
+    assert.equal(h.catalog.getLearnedTemperature('k3'), undefined);
+  });
+});
+
 describe('ModelCatalog thinking-effort picker follows the user settings', () => {
   const reasoningModels = (): OpenAIModelsResponse => ({
     object: 'list',

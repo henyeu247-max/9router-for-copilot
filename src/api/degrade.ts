@@ -11,6 +11,10 @@
  * Pure (no `vscode` import) so it is unit-testable under `node --test`.
  */
 
+import { isTemperatureError } from '../chat/temperatureError';
+import { parseOutputLimitError } from '../chat/outputLimitError';
+import { parseContextOverflowError } from '../chat/contextWindow';
+
 export type DegradeStep = 'reasoning' | 'tools';
 
 const TOOLS_HINT =
@@ -37,6 +41,13 @@ export function pickDegradeStep(
 ): DegradeStep | undefined {
   if (httpStatusOf(error) !== 400) { return undefined; }
   const text = error instanceof Error ? error.message : String(error);
+
+  // If the 400 error is specifically about temperature, output limits, or context overflow,
+  // do not treat it as an ambiguous 400 and strip reasoning or tools.
+  if (isTemperatureError(text) || parseOutputLimitError(text) !== undefined || parseContextOverflowError(text) !== undefined) {
+    return undefined;
+  }
+
   const canReasoning = state.hasReasoning && !state.done.has('reasoning');
   const canTools = state.hasTools && !state.done.has('tools');
 

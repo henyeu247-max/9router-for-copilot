@@ -18,6 +18,8 @@ export interface RetryDeps {
   learnFromOverflow: (error: unknown) => boolean;
   /** Learns a real output-token limit from a "max_tokens too large" error; true when a retry is worthwhile. */
   learnFromOutputLimit?: (error: unknown) => boolean;
+  /** Learns a temperature constraint from a temperature rejection error; true when a retry is worthwhile. */
+  learnFromTemperature?: (error: unknown) => boolean;
   /** What the LAST attempted request contained. */
   lastRequest: () => { hasReasoning: boolean; hasTools: boolean };
   /** Steps already stripped (shared with `attempt`, which applies them). */
@@ -28,6 +30,7 @@ export interface RetryDeps {
 export async function runWithRecovery(deps: RetryDeps): Promise<void> {
   let overflowRetried = false;
   let outputLimitRetried = false;
+  let temperatureRetried = false;
   for (;;) {
     try {
       await deps.attempt();
@@ -42,6 +45,11 @@ export async function runWithRecovery(deps: RetryDeps): Promise<void> {
       if (!outputLimitRetried && deps.learnFromOutputLimit?.(error)) {
         outputLimitRetried = true;
         deps.log('Retrying chat request with a smaller max_tokens...');
+        continue;
+      }
+      if (!temperatureRetried && deps.learnFromTemperature?.(error)) {
+        temperatureRetried = true;
+        deps.log('Retrying chat request with corrected temperature...');
         continue;
       }
       const last = deps.lastRequest();

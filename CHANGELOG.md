@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Preserve the resolved chat temperature instead of letting Copilot's caller options overwrite it. Reasoning-model requests default to temperature 1 unless explicitly configured otherwise; learned upstream constraints take precedence.
+- Retry a temperature rejection once with a learned fixed value or with the temperature field omitted. Temperature, context and output-limit errors no longer trigger unrelated reasoning/tool degradation.
+- Isolate failures of individual background thinking-level probes so remaining models can still be probed.
+
 ## 3.0.0
 
 **One project.** The four sources are merged into a single tree: the engine of `hotrungnhan/9router-for-github-copilot` (itself from arbs-io), the resilience work from the earlier Vizards-based 0.9.x line, and the toolchain, panel/health/dashboard concepts and catalog filtering of `diegosouzapw/OmniCopilot` as the repository base. Git history of all of them is preserved (`upstream` and `omni` remotes).

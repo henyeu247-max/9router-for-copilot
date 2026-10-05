@@ -19,6 +19,18 @@ describe('buildChatRequest', () => {
     assert.equal(req.parallel_tool_calls, undefined);
   });
 
+  test('omits temperature field when undefined', () => {
+    const req = buildChatRequest({
+      model: 'my-model',
+      messages: [{ role: 'user', content: 'hi' }],
+      maxTokens: 128,
+    });
+    assert.equal(req.model, 'my-model');
+    assert.equal(req.max_tokens, 128);
+    assert.equal('temperature' in req, false);
+    assert.equal(req.temperature, undefined);
+  });
+
   test('omits tool fields when tools array is empty', () => {
     const req = buildChatRequest({
       model: 'm',

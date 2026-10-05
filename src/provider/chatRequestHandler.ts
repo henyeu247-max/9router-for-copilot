@@ -32,6 +32,7 @@ import {
   streamResponse,
 } from '../chat/responseStreamer';
 import { friendlyModelName } from '../models/modelDisplay';
+import { hasReasoningTierInName } from '../models/modelInfoBuilder';
 import { TokenUsage } from '../status/sessionStats';
 import { ModelCatalog } from './modelCatalog';
 import { convertAllMessages } from './vscodeParts';
@@ -261,15 +262,6 @@ export class ChatRequestHandler {
       const perModel = resolvePerModelOptions(model.id, config.perModelOptions);
       const discovered = catalog.getDiscoveredParams(model.id);
 
-      const configuredTemperature =
-        pickNumber(options.modelOptions?.temperature) ??
-        pickNumber(perModel.temperature) ??
-        pickNumber(config.extraModelOptions?.temperature);
-      const temperature =
-        configuredTemperature ??
-        pickNumber(discovered?.temperature) ??
-        (hasTools ? config.agentTemperature : DEFAULT_TEMPERATURE);
-
       let reasoningEffort = pickReasoningEffort({
         // The "Thinking Effort" picker (microsoft/vscode#315181) writes
         // the user's choice into `modelOptions.reasoningEffort` on the
@@ -303,6 +295,55 @@ export class ChatRequestHandler {
       }
       reasoningEffort = guarded.effort;
 
+      // Sampler resolution, precedence high -> low:
+      //   learned setting from error > reasoning model default (1.0) >
+      //   caller modelOptions > perModelOptions > extraModelOptions >
+      //   backend-discovered params (e.g. Ollama Modelfile via /api/show) >
+      //   agentTemperature / DEFAULT_TEMPERATURE fallback.
+      const learnedTemp = catalog.getLearnedTemperature(model.id);
+      let temperature: number | undefined;
+
+      const isReasoningActive =
+        Boolean(reasoningEffort) ||
+        hasReasoningTierInName(model.id) ||
+        /(-thinking\b|\bo[13](?:-mini|-preview)?\b|kimi|r1\b)/i.test(model.id);
+
+      if (learnedTemp !== undefined) {
+        temperature = learnedTemp.kind === 'fixed' ? learnedTemp.value : undefined;
+      } else if (isReasoningActive) {
+        // Reasoning/thinking models (Kimi, o1, o3, Claude thinking, R1) universally reject
+        // temperature=0 or require temperature=1. Copilot Chat's client default (temperature: 0)
+        // must never be forced on reasoning models.
+        const userExplicit =
+          pickNumber(perModel.temperature) ??
+          pickNumber(config.extraModelOptions?.temperature);
+        temperature = userExplicit !== undefined && userExplicit > 0 ? userExplicit : 1;
+      } else {
+        const configuredTemperature =
+          pickNumber(options.modelOptions?.temperature) ??
+          pickNumber(perModel.temperature) ??
+          pickNumber(config.extraModelOptions?.temperature);
+
+        temperature =
+          configuredTemperature ??
+          pickNumber(discovered?.temperature) ??
+          (hasTools ? config.agentTemperature : DEFAULT_TEMPERATURE);
+      }
+
+      const extraOptions: Record<string, unknown> = {
+        ...discoveredSamplerOptions(discovered),
+        ...config.extraModelOptions,
+        ...perModel,
+        ...options.modelOptions,
+      };
+      // Once chatRequestHandler has resolved the final temperature (respecting learned errors,
+      // reasoning-model constraints, and user options), remove it from extraOptions so caller
+      // modelOptions (which defaults to temperature: 0 in Copilot) cannot overwrite it.
+      delete extraOptions.temperature;
+      if (reasoningEffort) {
+        extraOptions.reasoning_effort = reasoningEffort;
+      }
+
       let requestOptions = buildChatRequest({
         model: model.id,
         messages: truncatedMessages,
@@ -311,13 +352,7 @@ export class ChatRequestHandler {
         tools: filteredTools,
         toolChoice: hasTools ? this.mapToolChoice(options.toolMode) : undefined,
         parallelToolCalls: hasTools ? config.parallelToolCalling : undefined,
-        extraOptions: {
-          ...discoveredSamplerOptions(discovered),
-          ...config.extraModelOptions,
-          ...perModel,
-          ...options.modelOptions,
-          ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
-        },
+        extraOptions,
       });
 
       if (reasoningEffort) {
@@ -374,6 +409,7 @@ export class ChatRequestHandler {
         isCancelled: () => token.isCancellationRequested,
         learnFromOverflow: (error) => catalog.learnContextSizeFromError(model, error),
         learnFromOutputLimit: (error) => catalog.learnOutputLimitFromError(model, error),
+        learnFromTemperature: (error) => catalog.learnTemperatureFromError(model, error),
         lastRequest: () => ({ hasReasoning: lastRequestHadReasoning, hasTools: lastRequestHadTools }),
         degraded,
         log,

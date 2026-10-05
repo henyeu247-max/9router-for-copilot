@@ -7,6 +7,7 @@ import { TOKEN_CONSTANTS } from '../chat/tokenBudget';
 import { parseContextOverflowError, resolveContextWindowOverride } from '../chat/contextWindow';
 import { applyModelFilter, selectChatModels } from '../models/catalogFilter';
 import { parseOutputLimitError } from '../chat/outputLimitError';
+import { parseTemperatureError, type TemperatureAdjustment } from '../chat/temperatureError';
 import { dedupeModels } from '../models/modelDisplay';
 import { buildModelInfo } from '../models/modelInfoBuilder';
 import { pickReasoningEffort } from '../chat/reasoningEffort';
@@ -75,6 +76,8 @@ export class ModelCatalog {
   private generation = 0;
   /** Output limits learned from "max_tokens too large" errors (real upstream ceilings). */
   private readonly learnedOutputByModelId: Map<string, number> = new Map();
+  /** Temperature constraints learned from 400 Bad Request errors. */
+  private readonly learnedTemperatureByModelId: Map<string, TemperatureAdjustment> = new Map();
   /**
    * Backend-discovered metadata per model id (context, sampler params,
    * capabilities — e.g. from Ollama `/api/show`). Rebuilt on every model
@@ -142,6 +145,7 @@ export class ModelCatalog {
   public clearLearnedContexts(): void {
     this.learnedContextByModelId.clear();
     this.learnedOutputByModelId.clear();
+    this.learnedTemperatureByModelId.clear();
     this.listingLimits = undefined;
     this.probeCache.clear();
     this.probeStoreLoaded = false; // reloaded from the store for whatever gateway is configured now
@@ -481,9 +485,13 @@ export class ModelCatalog {
         Array.from({ length: Math.min(4, ids.length) }, async () => {
           while (next < ids.length) {
             const id = ids[next++];
-            const outcome = await client.probeReasoningLevels!(id);
-            this.probeCache.set(id, { at: Date.now(), outcome });
-            if (outcome.kind === 'levels') { withLevels++; } else if (outcome.kind === 'none') { without++; } else { failed++; }
+            try {
+              const outcome = await client.probeReasoningLevels!(id);
+              this.probeCache.set(id, { at: Date.now(), outcome });
+              if (outcome.kind === 'levels') { withLevels++; } else if (outcome.kind === 'none') { without++; } else { failed++; }
+            } catch {
+              failed++;
+            }
           }
         })
       );
@@ -517,6 +525,39 @@ export class ModelCatalog {
     if (limit >= current) { return false; }
     this.learnedOutputByModelId.set(model.id, limit);
     this.deps.log(`Learned output limit for ${model.id} from server error: ${limit} tokens (was requesting up to ${current}).`);
+    return true;
+  }
+
+  /** Real temperature setting learned from an upstream error, or undefined. */
+  public getLearnedTemperature(modelId: string): TemperatureAdjustment | undefined {
+    return this.learnedTemperatureByModelId.get(modelId);
+  }
+
+  /**
+   * Inspect a failed chat request for a temperature rejection (e.g. "only 1 is allowed for this model"
+   * or "temperature is not supported") and record the adjustment. True when an adjustment was learned,
+   * so retrying with the corrected temperature can succeed.
+   */
+  public learnTemperatureFromError(
+    model: LanguageModelChatInformation,
+    error: unknown
+  ): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    const adjustment = parseTemperatureError(message);
+    if (adjustment === undefined) {
+      return false;
+    }
+    const current = this.learnedTemperatureByModelId.get(model.id);
+    if (
+      current !== undefined &&
+      current.kind === adjustment.kind &&
+      (current.kind === 'omit' || current.value === (adjustment as { value: number }).value)
+    ) {
+      return false;
+    }
+    this.learnedTemperatureByModelId.set(model.id, adjustment);
+    const detail = adjustment.kind === 'omit' ? 'omit temperature parameter' : `temperature=${adjustment.value}`;
+    this.deps.log(`Learned temperature requirement for ${model.id} from server error: ${detail}.`);
     return true;
   }
 

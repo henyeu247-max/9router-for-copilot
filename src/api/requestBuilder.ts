@@ -17,7 +17,7 @@ export interface ChatRequestOptions {
   model: string;
   messages: OpenAIMessage[];
   maxTokens: number;
-  temperature: number;
+  temperature?: number;
   tools?: OpenAIToolDefinition[];
   toolChoice?: ToolChoice;
   parallelToolCalls?: boolean;
@@ -34,8 +34,11 @@ export function buildChatRequest(options: ChatRequestOptions): OpenAIChatComplet
     model: options.model,
     messages: options.messages,
     max_tokens: options.maxTokens,
-    temperature: options.temperature,
   };
+
+  if (options.temperature !== undefined) {
+    request.temperature = options.temperature;
+  }
 
   if (options.tools && options.tools.length > 0) {
     request.tools = options.tools;

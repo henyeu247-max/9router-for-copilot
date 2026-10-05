@@ -5,7 +5,7 @@ import { type DegradeStep } from '../degrade';
 
 const err400 = (m: string) => Object.assign(new Error(`Chat completion failed: 400 - ${m}`), { status: 400 });
 
-function harness(script: Array<Error | 'ok'>, opts: Partial<{ reported: boolean; cancelled: boolean; overflow: boolean; tools: boolean; reasoning: boolean; outputLimit: boolean }> = {}) {
+function harness(script: Array<Error | 'ok'>, opts: Partial<{ reported: boolean; cancelled: boolean; overflow: boolean; tools: boolean; reasoning: boolean; outputLimit: boolean; temperature: boolean }> = {}) {
   const degraded = new Set<DegradeStep>();
   const logs: string[] = [];
   let calls = 0;
@@ -20,6 +20,7 @@ function harness(script: Array<Error | 'ok'>, opts: Partial<{ reported: boolean;
       isCancelled: () => opts.cancelled ?? false,
       learnFromOverflow: () => opts.overflow ?? false,
       learnFromOutputLimit: () => opts.outputLimit ?? false,
+      learnFromTemperature: () => opts.temperature ?? false,
       lastRequest: () => ({ hasReasoning: opts.reasoning ?? true, hasTools: opts.tools ?? true }),
       degraded,
       log: (m) => logs.push(m),
@@ -101,6 +102,27 @@ describe('runWithRecovery: max_tokens too large', () => {
   test('does not retry when nothing was learned', async () => {
     const e = err400('max_tokens is too large');
     const h = harness([e, 'ok'], { outputLimit: false, tools: false, reasoning: false });
+    await assert.rejects(h.run(), (x) => x === e);
+    assert.equal(h.calls(), 1);
+  });
+});
+
+describe('runWithRecovery: temperature rejection', () => {
+  test('retries once with corrected temperature when a setting was learned, then succeeds', async () => {
+    const h = harness([err400('field Temperature invalid, only 1 is allowed for this model'), 'ok'], { temperature: true });
+    await h.run();
+    assert.equal(h.calls(), 2);
+    assert.deepEqual([...h.degraded], []);
+  });
+  test('is retried only once even if the error repeats', async () => {
+    const e = err400('field Temperature invalid, only 1 is allowed for this model');
+    const h = harness([e, e, e], { temperature: true, tools: false, reasoning: false });
+    await assert.rejects(h.run(), (x) => x === e);
+    assert.equal(h.calls(), 2);
+  });
+  test('does not retry when no temperature adjustment was learned', async () => {
+    const e = err400('random error');
+    const h = harness([e, 'ok'], { temperature: false, tools: false, reasoning: false });
     await assert.rejects(h.run(), (x) => x === e);
     assert.equal(h.calls(), 1);
   });
